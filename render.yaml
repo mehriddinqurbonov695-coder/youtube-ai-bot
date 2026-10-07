@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: youtube-ai-bot
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --threads 8 -b 0.0.0.0:$PORT server:app
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /var/data/data.db
+      - key: MAIN_ADMIN
+        value: "6732711534"
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3.8-flash
+      - key: BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false

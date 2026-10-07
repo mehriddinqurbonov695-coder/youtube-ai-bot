@@ -1,0 +1,135 @@
+<!DOCTYPE html><html lang="uz"><head><meta charset="UTF-8"><script src="https://telegram.org/js/telegram-web-app.js"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin panel</title>
+<style>
+:root{--bg:#050405;--p:#120d0f;--l:#2b1519;--r:#ff1f3a;--r2:#a80017;--t:#f7f0f0;--m:#a08d90}
+*{box-sizing:border-box;margin:0}
+body{font-family:system-ui,sans-serif;background:radial-gradient(90% 40% at 85% 0,#4a0712,transparent 70%),var(--bg);color:var(--t);padding:14px;max-width:680px;margin:auto}
+h1{font-size:20px;margin:6px 0 10px}h2{font-size:15px;margin-bottom:12px}
+.c{background:var(--p);border:1px solid var(--l);border-radius:22px;padding:16px;margin-bottom:14px}
+select{width:100%;background:#0c080a;border:1px solid #47202a;border-radius:14px;padding:12px;color:var(--t);font:inherit;margin:4px 0 10px;outline:0}
+input,textarea{width:100%;background:#0c080a;border:1px solid #47202a;border-radius:14px;padding:12px;color:var(--t);font:inherit;margin:4px 0 10px;outline:0}
+textarea{min-height:110px}label{font-size:12px;color:var(--m);font-weight:700}
+button{border:0;border-radius:14px;padding:13px 16px;background:linear-gradient(135deg,var(--r),var(--r2));color:#fff;font:700 14px system-ui;cursor:pointer}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:6px 0 12px;position:sticky;top:0;background:var(--bg);z-index:5;scrollbar-width:none}
+.tb{flex:none;padding:11px 15px;border-radius:99px;background:var(--p);border:1px solid var(--l);font-size:13px}
+.tb.on{background:linear-gradient(135deg,var(--r),var(--r2));border-color:var(--r)}
+.tab{display:none}.tab.on{display:block}
+.g{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.g div{background:#0c080a;border:1px solid var(--l);border-radius:16px;padding:14px 6px;text-align:center}
+.g b{display:block;font-size:24px;color:#ff5468}.g small{color:var(--m);font-size:11px}
+.it{padding:12px 0;border-bottom:1px solid var(--l);font-size:14px}.it small{color:var(--m);display:block;margin-top:3px}
+.q{font-weight:700}.a{color:#cdbfc1;margin-top:4px;white-space:pre-wrap;font-size:13px}
+.st{font-size:12px;padding:3px 9px;border-radius:99px;background:#2b1519;margin-left:6px}
+a.lnk{color:#ff7a8a;text-decoration:none}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--l);font-size:14px}
+.x{background:#2b1519;padding:8px 12px}.pn{border-top:1px solid var(--l);padding-top:12px;margin-top:12px}
+.dz{display:flex;gap:10px;margin:6px 0 12px}.dzb{width:34px;height:34px;border-radius:50%;border:2px solid transparent;padding:0}.dzb.on{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+.thumbs{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 10px}.th{position:relative;width:78px;height:78px}.th img{width:100%;height:100%;object-fit:cover;border-radius:12px}.th b{position:absolute;left:5px;bottom:5px;background:#000b;border-radius:8px;padding:1px 6px;font-size:11px}.th button{position:absolute;width:24px;height:24px;border-radius:50%;padding:0;font-size:12px}.th .del{right:-6px;top:-6px;background:#5a0a14}.th .mvl{right:-6px;bottom:-6px}
+.upl{display:block;padding:14px;border:2px dashed #5a2029;border-radius:14px;text-align:center;color:var(--m);cursor:pointer;margin:4px 0 8px;font-size:14px}
+.two{display:flex;gap:8px}.two>div{flex:1}.bar2{display:flex;gap:6px}
+#msg{position:fixed;left:16px;right:16px;bottom:16px;background:#1c0d10;border:1px solid var(--r);border-radius:16px;padding:14px;display:none;z-index:9}
+</style></head><body>
+<h1>⚙️ Admin panel</h1>
+<div id="deny" class="c" style="display:none"><h2>⛔ Ruxsat yo‘q</h2><p style="color:var(--m)">Bu panel faqat adminlar uchun. Botga kirib /admin yozing.</p></div>
+<div id="app" style="display:none">
+<div class="tabs">
+ <button class="tb on" data-t="home" onclick="tab('home')">🏠 Asosiy</button>
+ <button class="tb" data-t="chats" onclick="tab('chats')">💬 Savollar</button>
+ <button class="tb" data-t="orders" onclick="tab('orders')">🧾 Buyurtmalar</button>
+ <button class="tb" data-t="chan" onclick="tab('chan')">📺 Kanallar</button>
+ <button class="tb" data-t="vid" onclick="tab('vid')">🎬 Videolar</button>
+ <button class="tb" data-t="plans" onclick="tab('plans')">🎓 Kurslar</button>
+ <button class="tb" data-t="set" onclick="tab('set')">⚙️ Sozlamalar</button>
+</div>
+<section class="tab on" id="t_home">
+ <div class="c"><div class="g"><div><b id="s1">0</b><small>Foydalanuvchilar</small></div><div><b id="s2">0</b><small>Hozir onlayn</small></div><div><b id="s3">0</b><small>Savollar</small></div><div><b id="s4">0</b><small>Buyurtmalar</small></div><div><b id="s5">0</b><small>Kutilmoqda</small></div><div><b id="s6">0</b><small>Adminlar</small></div></div></div>
+ <div class="c"><h2>👥 Barcha foydalanuvchilar</h2><input id="uq" placeholder="Ism, @username yoki ID bo‘yicha qidirish" oninput="drawUsers()"><div id="ul"></div></div>
+ <div class="c"><h2>So‘nggi buyurtmalar</h2><div id="h_o"></div></div>
+ <div class="c"><h2>So‘nggi savollar</h2><div id="h_c"></div></div>
+</section>
+<section class="tab" id="t_chan"><div class="c"><h2 id="chform">Yangi kanal qo‘shish</h2>
+<label>Rasmlar (ixtiyoriy, ko‘pi bilan 10 ta): <span id="chcnt">0/10</span></label><label class="upl"><input type="file" accept="image/*" multiple hidden onchange="pickCh(this)">🖼️ Galereyadan rasmlarni tanlash</label><div id="chimgs" class="thumbs"></div>
+<label>Nomi (ixtiyoriy)</label><input id="cht" placeholder="Masalan: PixelUz kanali"><label>Izoh</label><textarea id="chd" placeholder="Kanal haqida: obunachilar, mavzu, daromad..."></textarea><label>Narxi</label><input id="chpr" placeholder="Masalan: 500 000">
+<button style="width:100%" onclick="saveCh()">💾 Saqlash</button><button class="x" style="width:100%;margin-top:8px" onclick="clearCh()">Bekor qilish</button></div>
+<div class="c"><h2 id="chlh">Qo‘yilgan kanallar</h2><div id="chl"></div></div></section>
+<section class="tab" id="t_chats"><div class="c"><h2>Nima so‘rashyapti</h2><div id="cl"></div></div></section>
+<section class="tab" id="t_orders"><div class="c"><h2>Kim nima sotib olayapti</h2><div id="ol"></div></div></section>
+<section class="tab" id="t_plans"><div class="c"><h2>Kurslar</h2><div id="pl"></div></div><button style="width:100%;padding:16px" onclick="save()">💾 Saqlash</button></section>
+<section class="tab" id="t_set">
+ <div class="c"><h2>Tepadagi lenta yozuvlari</h2><label>Bosh sahifa</label><input id="mh"><label>Kurs bo‘limi</label><input id="mc"></div>
+ <div class="c"><h2>Kunlik savol limitlari</h2><label>⚡ YouTube AI Plus (Gemini, savol va tahlil): har bir foydalanuvchi uchun 24 soatda nechta savol (0 = cheksiz)</label><input id="dl" inputmode="numeric"><label>💎 YouTube AI Pro (hali ulanmagan, keyin sozlanadi): har bir foydalanuvchi uchun 24 soatda nechta savol (0 = cheksiz)</label><input id="dlp" inputmode="numeric"><label>🌐 Internetdan qidirish (Plus javoblari uchun)</label><select id="srch"><option value="0">O‘chiq</option><option value="1">Yoqilgan</option></select></div>
+ <div class="c"><h2>🖼️ Rasmlar va logolar</h2><div id="imgset"></div><small style="color:var(--m);display:block;margin-top:8px">Rasm almashtirilgach, saytni yopib qayta oching.</small></div>
+ <div class="c"><h2>To‘lov kartasi</h2><label>Karta raqami</label><input id="card"><label>Karta egasi (ixtiyoriy)</label><input id="holder"></div>
+ <button style="width:100%;padding:16px" onclick="save()">💾 Saqlash</button>
+ <div class="c" style="margin-top:14px"><h2>Adminlar</h2><div id="ad"></div><div id="addbox"><label>Yangi admin ID</label><input id="nid" inputmode="numeric"><button onclick="addAdm()">Admin qo‘shish</button></div></div>
+</section>
+</div>
+<div id="msg"></div>
+<script>
+const $=id=>document.getElementById(id);
+const INIT=(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData)||'';try{Telegram.WebApp.ready();Telegram.WebApp.expand()}catch(e){}
+let MAIN=false,FILLED=false,AP=[],USERS=[];
+const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ago=ts=>{const s=Math.max(0,Date.now()/1000-ts);return s<90?'hozirgina':s<3600?Math.floor(s/60)+' daq oldin':s<86400?Math.floor(s/3600)+' soat oldin':Math.floor(s/86400)+' kun oldin'};
+function note(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(note.t);note.t=setTimeout(()=>m.style.display='none',3500)}
+async function api(u,b){const r=await fetch(u,{method:b?'POST':'GET',headers:{'Content-Type':'application/json','X-Init':INIT},body:b?JSON.stringify(b):undefined});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('Xato '+r.status));return j}
+const who=u=>esc(u.name||'Noma‘lum')+(u.username?' <a class="lnk" href="https://t.me/'+esc(u.username)+'" target="_blank">@'+esc(u.username)+'</a>':'');
+const stt=s=>s==='ok'?'✅ tasdiqlangan':s==='no'?'❌ rad etilgan':'⏳ kutilmoqda';
+function tab(t){const sec=t==='vid'?'chan':t;if(t==='chan'||t==='vid'){const nk=t==='vid'?'video':'channel';if(nk!==K){K=nk;clearCh()}setKindUI()}
+  document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id==='t_'+sec));document.querySelectorAll('.tb').forEach(e=>e.classList.toggle('on',e.dataset.t===t));
+  ({home:loadHome,chan:loadChan,vid:loadChan,chats:loadChats,orders:loadOrders,plans:async()=>{},set:loadData})[t]().catch(e=>note(e.message))}
+async function loadData(){const d=await api('/api/admin/data');MAIN=d.main;IMGS=d.imgs||{};drawImgsSet();
+  $('s1').textContent=d.users;$('s2').textContent=d.online;$('s3').textContent=d.chats;$('s4').textContent=d.orders_total;$('s5').textContent=d.orders_new;$('s6').textContent=d.admins.length;
+  $('addbox').style.display=MAIN?'block':'none';
+  $('ad').innerHTML=d.admins.map(i=>`<div class="row"><span>${i}</span>${MAIN?`<button class="x" onclick="delAdm(${i})">O‘chirish</button>`:''}</div>`).join('');
+  if(!FILLED){FILLED=true;const c=d.cfg;$('mh').value=c.mq_home;$('mc').value=c.mq_course;$('card').value=c.card;$('holder').value=c.holder;$('dl').value=(c.daily_limit==null?20:c.daily_limit);$('dlp').value=(c.pro_limit==null?10:c.pro_limit);$('srch').value=c.search?'1':'0';AP=c.plans;drawPlans()}
+  return d}
+async function loadHome(){loadUsers().catch(()=>{});const d=await loadData();
+  $('h_o').innerHTML=d.orders.slice(0,5).map(o=>`<div class="it"><b>#${o.id} ${esc(o.plan)}</b> · ${esc(o.price)} so‘m<span class="st">${stt(o.status)}</span><small>${esc(o.contact||'')}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>';
+  const c=await api('/api/admin/chats?limit=5');
+  $('h_c').innerHTML=c.map(x=>`<div class="it"><div class="q">${esc(x.q).slice(0,140)}</div><small>${x.model==='pro'?'💎 Pro':'⚡ Plus'} · ${who(x)} · ${ago(x.ts)}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+async function loadUsers(){USERS=await api('/api/admin/users');drawUsers()}
+function drawUsers(){const q=($('uq').value||'').toLowerCase();
+  $('ul').innerHTML=USERS.filter(u=>!q||((u.name||'')+(u.username||'')+u.uid).toLowerCase().includes(q)).map(u=>`<div class="it"><b>${who(u)}</b><small>ID ${esc(u.uid)} · ${ago(u.last)} · ${u.chats} savol · ${u.orders} buyurtma</small>${/^\d+$/.test(u.uid)&&!u.username?`<small><a class="lnk" href="tg://user?id=${u.uid}">💬 Telegramda ochish</a></small>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+async function loadChats(){const c=await api('/api/admin/chats?limit=60');
+  $('cl').innerHTML=c.map(x=>`<div class="it"><div class="q">${esc(x.q).slice(0,300)}</div><div class="a">${esc(x.a).slice(0,350)}</div><small>${x.model==='pro'?'💎 Pro':'⚡ Plus'} · ${who(x)} · ${ago(x.ts)}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+async function loadOrders(){const o=await api('/api/admin/orders');
+  $('ol').innerHTML=o.map(x=>`<div class="it"><b>#${x.id} ${esc(x.plan)}</b> · ${esc(x.price)} so‘m<span class="st">${stt(x.status)}</span><small>${who(x)} · ${esc(x.contact||'')} · ${ago(x.ts)}</small>${x.status==='new'?`<div class="bar2" style="margin-top:8px"><button onclick="dec(${x.id},'ok')">✅ Tasdiqlash</button><button class="x" onclick="dec(${x.id},'no')">❌ Rad etish</button></div>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+async function dec(id,st){try{await api('/api/admin/order',{id,st});note('Bajarildi');loadOrders()}catch(e){note(e.message)}}
+async function save(){const body={mq_home:$('mh').value,mq_course:$('mc').value,card:$('card').value,holder:$('holder').value,daily_limit:$('dl').value,pro_limit:$('dlp').value,search:$('srch').value};if(FILLED)body.plans=collect();
+  try{await api('/api/admin/cfg',body);note('✅ Saqlandi')}catch(e){note(e.message)}}
+async function addAdm(){try{await api('/api/admin/admin',{id:$('nid').value.trim()});$('nid').value='';loadData();note('Admin qo‘shildi')}catch(e){note(e.message)}}
+async function delAdm(i){try{await api('/api/admin/admin',{id:i,del:1});loadData()}catch(e){note(e.message)}}
+const DZS={silver:'#c0c0c0',red:'#ff1f3a',gold:'#ecc96e',blue:'#2e8bff',green:'#2fd47a',purple:'#9b6bff'};
+function drawPlans(){$('pl').innerHTML=AP.map((p,i)=>`<div class="pn"><div class="row" style="border:0;padding-top:0"><b>#${i+1} ${esc(p.name||'Yangi kurs')}</b><span class="bar2"><button class="x" onclick="mv(${i},-1)">↑</button><button class="x" onclick="mv(${i},1)">↓</button><button class="x" style="background:#5a0a14" onclick="delPlan(${i})">🗑</button></span></div>
+<label>Nomi</label><input class="f-name" value="${esc(p.name)}"><label>Narx (so'm)</label><input class="f-price" value="${esc(p.price)}"><label>Qisqa izoh</label><input class="f-sub" value="${esc(p.sub)}">
+<div class="two"><div><label>Belgi (emoji)</label><input class="f-icon" value="${esc(p.icon||'')}"></div><div><label>Yozuv (masalan: Mashhur)</label><input class="f-badge" value="${esc(p.badge||'')}"></div></div>
+<label>Havola (ixtiyoriy: bo‘lsa, “Olish” tugmasi shu havolaga o‘tadi)</label><input class="f-link" value="${esc(p.link||'')}"><label>Dizayn</label><div class="dz">${Object.keys(DZS).map(k=>`<button class="dzb ${p.design===k?'on':''}" style="background:${DZS[k]}" onclick="setDz(${i},'${k}')"></button>`).join('')}</div>
+<label>Ma'lumot (bo'sh qolsa standart)</label><textarea class="f-info">${esc(p.info)}</textarea></div>`).join('')+'<button style="width:100%;margin-top:14px" onclick="addPlan()">➕ Yangi kurs qo‘shish</button>'}
+function collect(){return [...document.querySelectorAll('#pl .pn')].map((e,i)=>({id:AP[i].id,design:AP[i].design,name:e.querySelector('.f-name').value,price:e.querySelector('.f-price').value,sub:e.querySelector('.f-sub').value,icon:e.querySelector('.f-icon').value,badge:e.querySelector('.f-badge').value,info:e.querySelector('.f-info').value,link:e.querySelector('.f-link').value}))}
+function setDz(i,k){AP=collect();AP[i].design=k;drawPlans()}
+function mv(i,d){AP=collect();const j=i+d;if(j<0||j>=AP.length)return;[AP[i],AP[j]]=[AP[j],AP[i]];drawPlans()}
+function delPlan(i){if(!confirm('Bu kursni o‘chirasizmi?'))return;AP=collect();AP.splice(i,1);drawPlans()}
+function addPlan(){AP=collect();AP.push({id:'p'+Date.now().toString(36),name:'',price:'',sub:'',info:'',design:'blue',icon:'⭐',badge:'',link:''});drawPlans()}
+
+let CH=[],CHE=0,K='channel',CHIMGS=[];
+function setKindUI(){const v=K==='video';$('chlh').textContent=v?'Qo‘yilgan videolar':'Qo‘yilgan kanallar';if(!CHE)$('chform').textContent=v?'Yangi video qo‘shish':'Yangi kanal qo‘shish'}
+async function loadChan(){CH=await api('/api/admin/channels?kind='+K);drawChan()}
+function drawChan(){$('chl').innerHTML=CH.map(c=>`<div class="it" style="display:flex;gap:12px;align-items:center">${c.img?`<img src="${esc(c.img)}" style="width:64px;height:64px;border-radius:14px;object-fit:cover">`:'<div style="width:64px;height:64px;border-radius:14px;background:#2b1519;display:grid;place-content:center">▶</div>'}<div style="flex:1;min-width:0"><b>${esc(c.title||'(nomsiz)')}</b><small>${esc(c.price?c.price+' so‘m':'narx yo‘q')} · 📷 ${(c.imgs||[]).length} · ${esc((c.descr||'').slice(0,40))}</small></div><div class="bar2"><button class="x" onclick="editCh(${c.id})">✏️</button><button class="x" style="background:#5a0a14" onclick="delCh(${c.id})">🗑</button></div></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+function drawImgs(){$('chimgs').innerHTML=CHIMGS.map((m,i)=>`<div class="th"><img src="${esc(m.src)}"><b>${i+1}</b><button class="x del" onclick="delImg(${i})">✕</button>${i?`<button class="x mvl" onclick="mvImg(${i})">◀</button>`:''}</div>`).join('');$('chcnt').textContent=CHIMGS.length+'/10'}
+function delImg(i){CHIMGS.splice(i,1);drawImgs()}
+function mvImg(i){if(i<1||i>=CHIMGS.length)return;[CHIMGS[i-1],CHIMGS[i]]=[CHIMGS[i],CHIMGS[i-1]];drawImgs()}
+function shrink(f,mx){return new Promise(res=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const k=Math.min(1,(mx||800)/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',.78))};im.onerror=()=>res(null);im.src=r.result};r.onerror=()=>res(null);r.readAsDataURL(f)})}
+async function pickCh(i){const fs=[...i.files];i.value='';for(const f of fs){if(CHIMGS.length>=10){note('Ko‘pi bilan 10 ta rasm');break}const d=await shrink(f);if(d)CHIMGS.push({data:d,src:d})}drawImgs()}
+function clearCh(){CHE=0;CHIMGS=[];$('cht').value='';$('chd').value='';$('chpr').value='';drawImgs();setKindUI()}
+function editCh(id){const c=CH.find(x=>x.id===id);CHE=id;$('cht').value=c.title||'';$('chd').value=c.descr||'';$('chpr').value=c.price||'';CHIMGS=(c.imgids||[]).map((iid,n)=>({id:iid,src:c.imgs[n]}));drawImgs();$('chform').textContent='Tahrirlash (#'+id+')';window.scrollTo(0,0)}
+async function saveCh(){try{await api('/api/admin/channel',{kind:K,id:CHE||undefined,title:$('cht').value,descr:$('chd').value,price:$('chpr').value,imgs:CHIMGS.map(m=>m.id?{id:m.id}:{data:m.data})});note('✅ Saqlandi');clearCh();loadChan()}catch(e){note(e.message)}}
+async function delCh(id){if(!confirm('Kanalni o‘chirasizmi?'))return;try{await api('/api/admin/channel/delete',{id});loadChan()}catch(e){note(e.message)}}
+
+let IMGS={};
+const SLOTS=[['logo','Asosiy logo (robot): tepada, chatda, menyuda, ko‘p joyda'],['market','YouTube kanal sotib olish belgisi'],['nana','Rasm yaratish belgisi'],['kurs','Kurs belgisi (ustoz rasmi)'],['video','Video sotib olish belgisi'],['anl','Kanalni tahlil qildirish belgisi']];
+function drawImgsSet(){const e=$('imgset');if(!e)return;e.innerHTML=SLOTS.map(([k,t])=>`<div class="it" style="display:flex;gap:12px;align-items:center"><div style="width:64px;height:64px;border-radius:50%;flex:none;background:#2b1519 ${IMGS[k]?`url(${IMGS[k]}) center/cover`:''};display:grid;place-content:center;font-size:11px;color:var(--m)">${IMGS[k]?'':'standart'}</div><div style="flex:1"><b style="font-size:13px">${t}</b><div class="bar2" style="margin-top:8px"><label class="x" style="padding:9px 12px;border-radius:12px;cursor:pointer;font-size:13px;color:#fff">Almashtirish<input type="file" accept="image/*" hidden onchange="setImg('${k}',this)"></label>${IMGS[k]?`<button class="x" onclick="resetImg('${k}')">Standart</button>`:''}</div></div></div>`).join('')}
+async function setImg(k,i){const f=i.files[0];i.value='';if(!f)return;const d=await shrink(f,512);if(!d)return note('Rasm o‘qilmadi');try{await api('/api/admin/img',{key:k,image:d});note('✅ Saqlandi');loadData()}catch(e){note(e.message)}}
+async function resetImg(k){try{await api('/api/admin/img',{key:k,image:null});note('Standart rasmga qaytdi');loadData()}catch(e){note(e.message)}}
+(async()=>{try{await loadHome();$('app').style.display='block'}catch(e){$('deny').style.display='block'}})();
+setInterval(()=>{if($('app').style.display==='block'&&$('t_home').classList.contains('on'))loadHome().catch(()=>{})},20000);
+</script></body></html>
