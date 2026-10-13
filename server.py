@@ -1,4 +1,4 @@
-import os, json, time, sqlite3, threading, re, copy, hmac, hashlib, urllib.parse, html, base64, sys
+import os, json, time, sqlite3, threading, re, copy, hmac, hashlib, urllib.parse, html, base64, sys, math
 import requests
 from flask import Flask, request, jsonify, send_file, Response
 from dotenv import load_dotenv
@@ -37,10 +37,17 @@ for col in ("name", "username"):
 def touch(uid, now, name=None, uname=None):
     Q("insert into users(uid,first,last,name,username) values(?,?,?,?,?) on conflict(uid) do update set last=?, name=coalesce(?,name), username=coalesce(?,username)",
       (uid, now, now, name, uname, now, name, uname))
+Q("create table if not exists wallet(uid text primary key,amount integer default 0)")
+Q("create table if not exists ledger(id integer primary key autoincrement,uid text,delta integer,kind text,ref text,note text,ts real)")
+Q("create table if not exists topups(id integer primary key autoincrement,uid text,amount integer,status text,contact text,ts real)")
+Q("create table if not exists numbers(id integer primary key autoincrement,uid text,country text,cname text,price integer,act text,phone text,code text,status text,created real,expires real)")
+for col in ("amount integer", "paid_by text"):
+    try: Q("alter table orders add column " + col)
+    except Exception: pass
 Q("insert or ignore into admins values(?)", (MAIN,))
 
 DEF = {"mq_home": "UlugbekPardayev YOUTUBE AI Chat bot", "mq_course": "Ulugʻbek Pardayev Kurslari",
-       "card": "5614 6814 0659 1283", "holder": "", "daily_limit": 10, "pro_limit": 10, "search": 0,
+       "card": "5614 6814 0659 1283", "holder": "", "daily_limit": 10, "pro_limit": 10, "search": 0, "usd_rate": 12500, "num_markup": 30, "num_on": 0, "num_timeout": 20, "kb": "",
        "plans": [{"id": "free", "name": "BEPUL", "price": "Bepul", "sub": "Tekin dars", "info": "", "design": "green", "icon": "🎁", "badge": "Tekin", "link": "https://t.me/tekindarsyoutube/14"},
                  {"id": "hup", "name": "HUP", "price": "99 000", "sub": "Boshlash uchun", "info": "", "design": "silver", "icon": "🚀", "badge": ""},
                  {"id": "pro", "name": "PRO", "price": "855 000", "sub": "Umrbod kurs + yopiq guruh", "info": "", "design": "red", "icon": "⚡", "badge": "Mashhur"},
@@ -81,18 +88,17 @@ def handle(x):
     if cb:
         if cb["from"]["id"] not in admins():
             return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Ruxsat yo'q")
-        st, oid = cb["data"].split(":")
+        data = cb["data"]
+        if data.startswith(("tok:", "tno:")): return topup_decide(cb, data)
+        st, oid = data.split(":")
         if st == "x": return tg("answerCallbackQuery", callback_query_id=cb["id"])
-        cur = Q("select uid,plan,status from orders where id=?", (oid,))[0]
-        if not cur: return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Topilmadi")
-        if cur[0][2] != "new": return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Allaqachon hal qilingan")
+        res = order_decide(oid, st)
+        if res == "none": return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Topilmadi")
+        if res == "done": return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Allaqachon hal qilingan")
         ns = "✅ Tasdiqlandi" if st == "ok" else "❌ Rad etildi"
-        Q("update orders set status=? where id=?", (st, oid))
         tg("answerCallbackQuery", callback_query_id=cb["id"], text=ns)
         tg("editMessageReplyMarkup", chat_id=cb["message"]["chat"]["id"], message_id=cb["message"]["message_id"],
            reply_markup={"inline_keyboard": [[{"text": ns, "callback_data": "x:0"}]]})
-        if cur[0][0].isdigit():
-            tg("sendMessage", chat_id=int(cur[0][0]), text=(f"✅ To'lovingiz tasdiqlandi! {cur[0][1]} kursiga xush kelibsiz 🎉\nAdmin tez orada yopiq guruhga qo'shadi." if st == "ok" else "❌ To'lovingiz tasdiqlanmadi. Iltimos, admin bilan bog'laning."))
 
 def setup():
     tg("setMyDescription", description="Assalomu alaykum 👋\nUlugʻbek Pardayev ning Chat bot AI botiga xush kelibsiz!\n\nFoydalanish uchun START tugmasini bosing.")
@@ -105,7 +111,7 @@ def poll():
     while True:
         u = tg("getUpdates", offset=off, timeout=25)
         if not u.get("ok"): time.sleep(5); continue
-        for x in u["result"]:
+        for x in u.get("result", []):
             off = x["update_id"] + 1
             try: handle(x)
             except Exception as e: print("handle error:", e)
@@ -167,7 +173,7 @@ def clean(t):
     return t.replace("*", "").replace("`", "").replace("__", "").strip()
 GEMINI_BASE = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 GCM = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
-GCS = [{"maxOutputTokens": 900, "temperature": 0.7, "thinkingConfig": {"thinkingLevel": "low"}}, {"maxOutputTokens": 900, "temperature": 0.7}]
+GCS = [{"maxOutputTokens": 1500, "temperature": 0.7, "thinkingConfig": {"thinkingLevel": "low"}}, {"maxOutputTokens": 1500, "temperature": 0.7}]
 SEARCH = os.getenv("GEMINI_SEARCH") == "1" or os.getenv("CHAT_SEARCH") == "1"
 def gerr(r):
     try: return r.json()["error"]["message"]
@@ -345,8 +351,51 @@ def recall(uid, text, skip):
         if o >= 2 or (o >= 1 and len(qw) <= 2): sc.append((o, i, q, a))
     sc.sort(reverse=True)
     return [(q, a) for _, _, q, a in sc[:1]]
+
+# ---------- Kurs bilimlari: admin panelga yozilgan ma'lumotdan qidirib topadi ----------
+def _stem(w): return w.lower()[:5]
+def _toks(t): return {_stem(w) for w in re.findall(r"\w{3,}", t or "")}
+def course_docs():
+    c = cfg(); docs = []
+    for p in c["plans"]:
+        head = f"KURS: {p.get('name','')} | narxi: {p.get('price','')} so'm | {p.get('sub','')}"
+        if p.get("link"): head += f" | havola: {p['link']}"
+        docs.append((head + ("\n" + p["info"] if p.get("info") else ""), p.get("name", "")))
+    kb = (c.get("kb") or "").strip()
+    if kb:
+        buf = ""
+        for para in re.split(r"\n\s*\n", kb):
+            para = para.strip()
+            if not para: continue
+            if len(buf) + len(para) < 700: buf += ("\n\n" if buf else "") + para
+            else:
+                if buf: docs.append((buf, ""))
+                while len(para) > 900: docs.append((para[:900], "")); para = para[900:]
+                buf = para
+        if buf: docs.append((buf, ""))
+    return docs
+def course_ctx(text):
+    docs = course_docs()
+    if not docs: return ""
+    total = sum(len(d[0]) for d in docs)
+    if total <= 7000: picked = [d[0] for d in docs]
+    else:
+        q = _toks(text); sc = []
+        for i, (d, name) in enumerate(docs):
+            t = _toks(d); o = len(q & t) + (3 if name and _stem(name) in q else 0)
+            sc.append((o, -i, d))
+        sc.sort(reverse=True); picked = [d[0].split("\n")[0] for d in docs[:len(cfg()["plans"])]]; size = sum(len(x) for x in picked)
+        for o, _, d in sc:
+            if o <= 0: break
+            if size + len(d) > 6500: continue
+            picked.append(d); size += len(d)
+    return ("\n\nKURS HAQIDA RASMIY MA'LUMOT (admin kiritgan). Foydalanuvchi kurs, narx, dars, tarif, to'lov yoki kimligingiz haqida so'rasa, "
+            "FAQAT shu ma'lumotga tayanib TO'LIQ va aniq javob ber (narx, nimalar kiradi, qanday olinadi). Ma'lumotda yo'q narsani o'ylab topma: "
+            "'Bu haqda aniq ma'lumotim yo'q, admin bilan bog'laning' de. Kurs savollarida javob uzunligi 15 qatorgacha bo'lishi mumkin.\n\n"
+            + "\n---\n".join(picked))
+
 def build_sys(uid, text, ids):
-    out = SYS
+    out = SYS + course_ctx(text)
     if not uid: return out
     n = Q("select notes from memory where uid=?", (uid,))[0]
     if n and n[0][0]: out += "\n\nFoydalanuvchi haqida eslab qolingan ma'lumotlar (kerak bo'lsa ishlat, har safar aytib o'tirma):\n" + n[0][0]
@@ -485,18 +534,24 @@ def adata():
     cnt = lambda s, a=(): Q(s, a)[0][0][0]
     od = [dict(zip(("id", "uid", "plan", "price", "contact", "status", "ts"), r)) for r in Q("select * from orders order by id desc limit 15")[0]]
     return jsonify(main=me == MAIN, users=cnt("select count(*) from users"), online=cnt("select count(*) from users where last>?", (n - 120,)),
-                   chats=cnt("select count(*) from chats"), orders=od, orders_total=cnt("select count(*) from orders"), orders_new=cnt("select count(*) from orders where status='new'"), admins=admins(), cfg=cfg(), imgs=img_urls())
+                   chats=cnt("select count(*) from chats"), orders=od, orders_total=cnt("select count(*) from orders"), orders_new=cnt("select count(*) from orders where status in ('new','paid')"), admins=admins(), cfg=cfg(), imgs=img_urls())
 @app.post("/api/admin/cfg")
 def acfg():
     if not who(): return err("Kirish kerak", 401)
     d = request.json or {}; c = cfg()
     if "search" in d: c["search"] = 1 if str(d["search"]).lower() in ("1", "true") else 0
+    if "num_on" in d: c["num_on"] = 1 if str(d["num_on"]).lower() in ("1", "true") else 0
+    for nk, lo, hi in (("usd_rate", 1, 1000000), ("num_markup", 0, 500), ("num_timeout", 3, 60)):
+        if nk in d:
+            try: c[nk] = max(lo, min(int(float(d[nk])), hi))
+            except Exception: pass
     for lk in ("daily_limit", "pro_limit"):
         if lk in d:
             try: c[lk] = max(0, min(int(d[lk] or 0), 1000))
             except Exception: pass
     for k in ("mq_home", "mq_course", "card", "holder"):
         if k in d: c[k] = str(d[k])[:200]
+    if "kb" in d: c["kb"] = str(d["kb"])[:40000]
     if isinstance(d.get("plans"), list):
         out = []
         for p in d["plans"][:12]:
@@ -523,8 +578,8 @@ def rows(sql, keys, a=()): return [dict(zip(keys, r)) for r in Q(sql, a)[0]]
 @app.get("/api/admin/users")
 def ausers():
     if not who(): return err("Kirish kerak", 401)
-    return jsonify(rows("select u.uid,u.name,u.username,u.first,u.last,(select count(*) from chats c where c.uid=u.uid),(select count(*) from orders o where o.uid=u.uid) from users u order by u.last desc limit 300",
-                        ("uid", "name", "username", "first", "last", "chats", "orders")))
+    return jsonify(rows("select u.uid,u.name,u.username,u.first,u.last,(select count(*) from chats c where c.uid=u.uid),(select count(*) from orders o where o.uid=u.uid),coalesce((select amount from wallet w where w.uid=u.uid),0) from users u order by u.last desc limit 300",
+                        ("uid", "name", "username", "first", "last", "chats", "orders", "bal")))
 @app.get("/api/admin/chats")
 def achats():
     if not who(): return err("Kirish kerak", 401)
@@ -540,16 +595,347 @@ def aorders():
 @app.post("/api/admin/order")
 def adecide():
     if not who(): return err("Kirish kerak", 401)
-    d = request.json or {}; oid = d.get("id"); st = d.get("st")
+    d = request.json or {}; st = d.get("st")
     if st not in ("ok", "no"): return err("Noto'g'ri")
-    cur = Q("select uid,plan,status from orders where id=?", (oid,))[0]
-    if not cur: return err("Topilmadi", 404)
-    if cur[0][2] != "new": return err("Allaqachon hal qilingan")
-    Q("update orders set status=? where id=?", (st, oid))
-    if cur[0][0].isdigit():
-        tg("sendMessage", chat_id=int(cur[0][0]), text=(f"✅ To'lovingiz tasdiqlandi! {cur[0][1]} kursiga xush kelibsiz 🎉\nAdmin tez orada yopiq guruhga qo'shadi." if st == "ok" else "❌ To'lovingiz tasdiqlanmadi. Iltimos, admin bilan bog'laning."))
+    res = order_decide(d.get("id"), st)
+    if res == "none": return err("Topilmadi", 404)
+    if res == "done": return err("Allaqachon hal qilingan")
     return jsonify(ok=1)
 
+# ---------- Balans, hamyon, raqamlar ----------
+def Qc(sql, a=()):
+    with lock:
+        c = db.execute(sql, a); db.commit(); return c.rowcount
+def bal(uid):
+    r = Q("select amount from wallet where uid=?", (uid,))[0]; return r[0][0] if r else 0
+def adjust(uid, delta, kind, ref="", note=""):
+    with lock:
+        cur = db.execute("select amount from wallet where uid=?", (uid,)).fetchone()
+        have = cur[0] if cur else 0
+        if have + delta < 0: return False
+        if cur: db.execute("update wallet set amount=amount+? where uid=?", (delta, uid))
+        else: db.execute("insert into wallet(uid,amount) values(?,?)", (uid, delta))
+        db.execute("insert into ledger(uid,delta,kind,ref,note,ts) values(?,?,?,?,?,?)", (uid, delta, kind, str(ref), note, time.time()))
+        db.commit(); return True
+def money(n): return f"{int(n or 0):,}".replace(",", " ")
+def digits(t):
+    d = re.sub(r"\D", "", str(t or "")); return int(d) if d else 0
+def tuid():
+    u = tguser(request.headers.get("X-Init", "")); return str(u["id"]) if u else None
+def user_label(u):
+    i = u["id"]; name = html.escape(u.get("first_name", "") or "Foydalanuvchi")
+    return f'<a href="tg://user?id={i}">{name}</a>' + (" (@" + html.escape(u["username"]) + ")" if u.get("username") else "") + f" · ID {i}"
+def nostore(j):
+    r = jsonify(j); r.headers["Cache-Control"] = "no-store"; return r
+def notify(uid, text):
+    if str(uid).isdigit(): tg("sendMessage", chat_id=int(uid), text=text)
+
+def order_decide(oid, st):
+    cur = Q("select uid,plan,status,amount from orders where id=?", (oid,))[0]
+    if not cur: return "none"
+    uid, plan, status, amount = cur[0]
+    if Qc("update orders set status=? where id=? and status in ('new','paid')", (st, oid)) != 1: return "done"
+    if st == "no" and status == "paid" and amount: adjust(uid, int(amount), "refund", "o" + str(oid), "Buyurtma bekor qilindi")
+    if st == "ok": notify(uid, f"✅ Buyurtmangiz bajarildi: {plan} 🎉" if status == "paid" else f"✅ To'lovingiz tasdiqlandi! {plan} kursiga xush kelibsiz 🎉\nAdmin tez orada yopiq guruhga qo'shadi.")
+    else: notify(uid, f"❌ Buyurtmangiz bekor qilindi, {money(amount)} so'm balansingizga qaytarildi." if status == "paid" else "❌ To'lovingiz tasdiqlanmadi. Iltimos, admin bilan bog'laning.")
+    return "ok"
+def topup_apply(tid, yes):
+    cur = Q("select uid,amount from topups where id=?", (tid,))[0]
+    if not cur: return "none"
+    uid, amount = cur[0]
+    if Qc("update topups set status=? where id=? and status='new'", ("ok" if yes else "no", tid)) != 1: return "done"
+    if yes:
+        adjust(uid, amount, "topup", "t" + str(tid), "Balans to'ldirildi")
+        notify(uid, f"✅ Balansingiz {money(amount)} so'mga to'ldirildi.\nHozirgi balans: {money(bal(uid))} so'm")
+    else: notify(uid, "❌ Balans to'ldirish so'rovi rad etildi. Savol bo'lsa admin bilan bog'laning.")
+    return "ok"
+def topup_decide(cb, data):
+    st, tid = data.split(":"); yes = st == "tok"
+    res = topup_apply(tid, yes)
+    if res == "none": return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Topilmadi")
+    if res == "done": return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Allaqachon hal qilingan")
+    ns = "✅ Tasdiqlandi" if yes else "❌ Rad etildi"
+    tg("answerCallbackQuery", callback_query_id=cb["id"], text=ns)
+    tg("editMessageReplyMarkup", chat_id=cb["message"]["chat"]["id"], message_id=cb["message"]["message_id"],
+       reply_markup={"inline_keyboard": [[{"text": ns, "callback_data": "x:0"}]]})
+
+@app.get("/api/wallet")
+def wallet():
+    uid = tuid()
+    if not uid: return err("Balans faqat Telegram ichidagi Mini App'da ishlaydi", 401)
+    led = [dict(zip(("delta", "kind", "note", "ts"), r)) for r in Q("select delta,kind,note,ts from ledger where uid=? order by id desc limit 15", (uid,))[0]]
+    c = cfg(); return nostore({"balance": bal(uid), "ledger": led, "card": c["card"], "holder": c["holder"]})
+@app.post("/api/topup")
+def topup():
+    u = tguser(request.headers.get("X-Init", ""))
+    if not u: return err("Telegram ichidagi Mini App'da oching", 401)
+    d = request.json or {}; amount = digits(d.get("amount"))
+    if amount < 5000 or amount > 20000000: return err("Summa 5 000 dan 20 000 000 so'mgacha bo'lsin")
+    mt = re.match(r"data:image/[\w+.-]+;base64,(.+)", d.get("receipt") or "", re.S)
+    if not mt: return err("Chek rasmi kerak")
+    try: photo = base64.b64decode(mt[1])
+    except Exception: return err("Rasm noto'g'ri")
+    if len(photo) > 6000000: return err("Rasm juda katta")
+    uid = str(u["id"])
+    _, tid = Q("insert into topups(uid,amount,status,contact,ts) values(?,?,?,?,?)", (uid, amount, "new", u.get("first_name", ""), time.time()))
+    cap = f"💰 <b>Balans to'ldirish #{tid}</b>\nSumma: <b>{money(amount)} so'm</b>\nFoydalanuvchi: {user_label(u)}"
+    kb = {"inline_keyboard": [[{"text": "✅ Tasdiqlash", "callback_data": f"tok:{tid}"}, {"text": "❌ Rad etish", "callback_data": f"tno:{tid}"}]]}
+    for a in admins(): tgphoto(a, photo, cap, kb)
+    return jsonify(ok=1, id=tid)
+@app.post("/api/pay")
+def paybal():
+    u = tguser(request.headers.get("X-Init", ""))
+    if not u: return err("Telegram ichidagi Mini App'da oching", 401)
+    item = str((request.json or {}).get("item", "")); uid = str(u["id"])
+    if item.startswith("ch") and item[2:].isdigit():
+        r = Q("select title,descr,price,coalesce(kind,'channel') from channels where id=?", (int(item[2:]),))[0]
+        if not r: return err("Topilmadi", 404)
+        name = ("Video: " if r[0][3] == "video" else "Kanal: ") + (r[0][0] or (r[0][1] or "")[:18] or "YouTube"); price_txt = r[0][2]
+    else:
+        p = next((x for x in cfg()["plans"] if x["id"] == item), None)
+        if not p or p.get("link"): return err("Topilmadi", 404)
+        name = p["name"]; price_txt = p["price"]
+    amount = digits(price_txt)
+    if amount <= 0: return err("Bu mahsulotning narxi belgilanmagan")
+    if not adjust(uid, -amount, "buy", item, name): return jsonify(error="Balans yetmaydi", need=amount, balance=bal(uid)), 402
+    contact = ("@" + u["username"] + " " if u.get("username") else "") + f"{u.get('first_name', '')} (ID {u['id']})"
+    _, oid = Q("insert into orders(uid,plan,price,contact,status,ts,amount,paid_by) values(?,?,?,?,?,?,?,?)", (uid, name[:30], str(price_txt)[:20], contact[:60], "paid", time.time(), amount, "balance"))
+    kb = {"inline_keyboard": [[{"text": "✅ Topshirildi", "callback_data": f"ok:{oid}"}, {"text": "❌ Bekor qilish (pul qaytadi)", "callback_data": f"no:{oid}"}]]}
+    for a in admins(): tg("sendMessage", chat_id=a, parse_mode="HTML", reply_markup=kb, text=f"💰 <b>Balansdan to'landi #{oid}</b>\n{html.escape(name)} ({money(amount)} so'm)\nFoydalanuvchi: {user_label(u)}")
+    return jsonify(ok=1, balance=bal(uid), order=oid)
+
+# --- raqam xizmati (provayder) ---
+class FakeProv:
+    """Faqat sinash uchun: NUM_PROVIDER=fake"""
+    born = {}
+    def prices(self): return [{"country": "uz", "name": "O'zbekiston", "usd": 0.35, "count": 120}, {"country": "ru", "name": "Rossiya", "usd": 0.18, "count": 800}, {"country": "us", "name": "AQSH", "usd": 0.60, "count": 40}]
+    def buy(self, country):
+        act = "f" + str(int(time.time() * 1000)); FakeProv.born[act] = time.time(); return {"act": act, "phone": "+998901234567" if country == "uz" else "+79001234567"}
+    def status(self, act):
+        if time.time() - FakeProv.born.get(act, 0) > float(os.getenv("FAKE_DELAY", "6")): return {"state": "code", "code": "482915"}
+        return {"state": "waiting"}
+    def cancel(self, act): return True
+    def finish(self, act): pass
+
+class SmsActProv:
+    """SMS-Activate protokoli (handler_api.php). Ko'p saytlar shu usulda ishlaydi (sms-activate, smshub, grizzlysms va b.).
+    .env: NUM_API_URL, NUM_API_KEY, NUM_SERVICE (Google = go), NUM_PRICE_TO_USD (narx dollarda bo'lmasa, dollarga o'tkazish koeffitsienti)"""
+    def __init__(self):
+        self.url = os.getenv("NUM_API_URL", "").strip(); self.key = os.getenv("NUM_API_KEY", "").strip()
+        self.srv = os.getenv("NUM_SERVICE", "go").strip(); self.k = float(os.getenv("NUM_PRICE_TO_USD", "1") or 1)
+    def call(self, action, **p):
+        r = requests.get(self.url, params={"api_key": self.key, "action": action, **p}, timeout=30)
+        return r.text.strip()
+    def prices(self):
+        names = {}
+        try:
+            for cid, v in json.loads(self.call("getCountries")).items():
+                names[str(cid)] = v.get("eng") or v.get("rus") or ("Davlat " + str(cid))
+        except Exception: pass
+        j = json.loads(self.call("getPrices", service=self.srv)); out = []
+        for cid, svc in j.items():
+            x = svc.get(self.srv) if isinstance(svc, dict) else None
+            if not x: continue
+            cost = float(x.get("cost", 0) or 0); cnt = int(x.get("count", x.get("physicalCount", 0)) or 0)
+            if cost > 0 and cnt > 0: out.append({"country": str(cid), "name": names.get(str(cid), "Davlat " + str(cid)), "usd": cost * self.k, "count": cnt})
+        return out
+    def buy(self, country):
+        t = self.call("getNumber", service=self.srv, country=country)
+        if t.startswith("ACCESS_NUMBER"):
+            _, act, phone = t.split(":")[:3]; return {"act": act, "phone": "+" + phone.lstrip("+")}
+        raise Exception({"NO_NUMBERS": "Hozir bu davlatda raqam yo'q", "NO_BALANCE": "Provayder hisobida pul yetmaydi"}.get(t, t[:80]))
+    def status(self, act):
+        t = self.call("getStatus", id=act)
+        if t.startswith("STATUS_OK"): return {"state": "code", "code": t.split(":", 1)[1]}
+        return {"state": "waiting"}
+    def cancel(self, act): return self.call("setStatus", id=act, status=8).startswith("ACCESS_CANCEL")
+    def finish(self, act): self.call("setStatus", id=act, status=6)
+ISO5 = {"russia": "ru", "ukraine": "ua", "kazakhstan": "kz", "england": "gb", "usa": "us", "uzbekistan": "uz", "kyrgyzstan": "kg", "tajikistan": "tj",
+        "turkey": "tr", "india": "in", "indonesia": "id", "philippines": "ph", "vietnam": "vn", "thailand": "th", "malaysia": "my", "china": "cn",
+        "poland": "pl", "germany": "de", "france": "fr", "spain": "es", "italy": "it", "netherlands": "nl", "canada": "ca", "brazil": "br",
+        "mexico": "mx", "egypt": "eg", "nigeria": "ng", "kenya": "ke", "pakistan": "pk", "bangladesh": "bd", "georgia": "ge", "armenia": "am",
+        "azerbaijan": "az", "belarus": "by", "moldova": "md", "romania": "ro", "bulgaria": "bg", "israel": "il", "japan": "jp", "southkorea": "kr"}
+class FiveSimProv:
+    """5sim.net (v1 API). .env: NUM_PROVIDER=5sim, NUM_API_KEY=eyJ... (birinchi, JWT kalit), NUM_SERVICE=google, NUM_PRICE_TO_USD=1"""
+    base = "https://5sim.net/v1"; ops = {}
+    def __init__(self):
+        self.key = os.getenv("NUM_API_KEY", "").strip(); self.srv = os.getenv("NUM_SERVICE", "google").strip() or "google"
+        self.k = float(os.getenv("NUM_PRICE_TO_USD", "1") or 1)
+    def get(self, path, auth=True, **p):
+        h = {"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"}
+        if auth: h["Authorization"] = "Bearer " + self.key
+        url = self.base + path
+        try:
+            r = requests.get(url, headers=h, params=p, timeout=30); code, text = r.status_code, r.text
+        except Exception as e1:
+            import subprocess
+            if p: url += "?" + urllib.parse.urlencode(p)
+            cmd = ["curl", "-s", "-m", "30", "-w", "\n%{http_code}", "-H", "Accept: application/json", "-A", h["User-Agent"]]
+            if auth: cmd += ["-H", "Authorization: Bearer " + self.key]
+            try: out = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=40).stdout
+            except Exception: raise Exception("5sim ga ulanib bo'lmadi: " + str(e1)[:80])
+            text, _, c = out.rpartition("\n")
+            if not c.strip().isdigit() or c.strip() == "000": raise Exception("5sim ga ulanib bo'lmadi: " + str(e1)[:80])
+            code = int(c)
+        if code != 200: raise Exception((text or str(code)).strip()[:100])
+        try: return json.loads(text)
+        except Exception: return text
+    def prices(self):
+        j = self.get("/guest/prices", auth=False, product=self.srv).get(self.srv, {}); out = []
+        for country, ops in j.items():
+            ok = {o: v for o, v in ops.items() if isinstance(v, dict) and (v.get("count") or 0) > 0 and (v.get("cost") or 0) > 0}
+            if not ok: continue
+            op = "any" if "any" in ok else min(ok, key=lambda o: ok[o]["cost"])
+            FiveSimProv.ops[country] = op
+            out.append({"country": country, "name": country.replace("_", " ").title(), "iso": ISO5.get(country),
+                        "usd": float(ok[op]["cost"]) * self.k, "count": int(ok[op]["count"])})
+        return out
+    def buy(self, country):
+        op = FiveSimProv.ops.get(country, "any")
+        j = self.get(f"/user/buy/activation/{country}/{op}/{self.srv}")
+        if not isinstance(j, dict) or not j.get("id"): raise Exception("Raqam berilmadi: " + str(j)[:80])
+        return {"act": str(j["id"]), "phone": str(j.get("phone", ""))}
+    def status(self, act):
+        j = self.get(f"/user/check/{act}")
+        for m in (j.get("sms") or []) if isinstance(j, dict) else []:
+            if m.get("code"): return {"state": "code", "code": str(m["code"])}
+        return {"state": "waiting"}
+    def cancel(self, act):
+        try: self.get(f"/user/cancel/{act}"); return True
+        except Exception as e:
+            if "order has sms" in str(e).lower() or "sms" in str(e).lower(): return False
+            raise
+    def finish(self, act): self.get(f"/user/finish/{act}")
+    def balance(self): return self.get("/user/profile").get("balance")
+
+def prov():
+    if (os.getenv("NUM_PROVIDER") or "").lower() == "fake": return FakeProv()
+    if (os.getenv("NUM_PROVIDER") or "").lower() in ("5sim", "fivesim") and os.getenv("NUM_API_KEY"): return FiveSimProv()
+    if os.getenv("NUM_API_URL") and os.getenv("NUM_API_KEY"): return SmsActProv()
+    raise Exception("Raqam xizmati hali ulanmagan (provayder sozlanmagan)")
+_pc = {"t": 0, "v": []}
+def flag(cc):
+    cc = (cc or "").upper()
+    return "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in cc) if len(cc) == 2 and cc.isalpha() else "🌍"
+def num_prices():
+    if time.time() - _pc["t"] > 60: _pc["v"] = prov().prices(); _pc["t"] = time.time()
+    c = cfg(); out = []
+    for p in _pc["v"]:
+        som = int(math.ceil(p["usd"] * c["usd_rate"] * (1 + c["num_markup"] / 100.0) / 100.0)) * 100
+        out.append({"country": p["country"], "name": p["name"], "flag": flag(p.get("iso") or p["country"]), "price": som, "count": p.get("count")})
+    out.sort(key=lambda x: x["price"]); return out
+def num_done(nid, code):
+    r = Q("select uid,act,phone from numbers where id=?", (nid,))[0]
+    if r and Qc("update numbers set status='done', code=? where id=? and status='waiting'", (code, nid)) == 1:
+        try: prov().finish(r[0][1])
+        except Exception: pass
+        notify(r[0][0], f"📩 SMS kod keldi: {code}\nRaqam: {r[0][2]}")
+def num_refund(nid):
+    r = Q("select uid,act,price,status from numbers where id=?", (nid,))[0]
+    if not r: return False, "Topilmadi"
+    uid, act, price, status = r[0]
+    if status != "waiting": return False, "Allaqachon yakunlangan"
+    try: st = prov().status(act)
+    except Exception: st = {"state": "waiting"}
+    if st.get("state") == "code": num_done(nid, st["code"]); return False, "SMS allaqachon keldi: kod " + str(st["code"])
+    try: ok = prov().cancel(act)
+    except Exception as e: return False, "Bekor qilib bo'lmadi: " + str(e)[:100]
+    if not ok: return False, "Xizmat hozir bekor qilishga ruxsat bermayapti. Birozdan keyin urinib ko'ring."
+    if Qc("update numbers set status='cancelled' where id=? and status='waiting'", (nid,)) == 1:
+        adjust(uid, int(price), "refund", "n" + str(nid), "Raqam bekor qilindi"); return True, "Pul balansga qaytarildi"
+    return False, "Allaqachon yakunlangan"
+def sweeper():
+    while True:
+        time.sleep(30)
+        try:
+            for nid, uid in Q("select id,uid from numbers where status='waiting' and expires<?", (time.time(),))[0]:
+                ok, _ = num_refund(nid)
+                if ok: notify(uid, "⏰ Vaqt tugadi, SMS kelmadi. Pul balansingizga qaytarildi.")
+        except Exception as e: print("sweeper xatosi:", e)
+@app.get("/api/numbers")
+def numbers_list():
+    c = cfg()
+    if not c.get("num_on"): return nostore({"on": False})
+    try: lst = num_prices()
+    except Exception as e: return nostore({"on": False, "msg": str(e)[:150]})
+    uid = tuid(); return nostore({"on": True, "list": lst, "balance": bal(uid) if uid else None})
+@app.post("/api/number/buy")
+def num_buy():
+    uid = tuid()
+    if not uid: return err("Telegram ichidagi Mini App'da oching", 401)
+    c = cfg()
+    if not c.get("num_on"): return err("Raqam xizmati hozircha yopiq")
+    if Q("select count(*) from numbers where uid=? and status='waiting'", (uid,))[0][0][0] >= 1: return err("Sizda kutilayotgan raqam bor. Avval uni tugating yoki bekor qiling")
+    country = str((request.json or {}).get("country", ""))
+    try: pr = next((x for x in num_prices() if x["country"] == country), None)
+    except Exception as e: return err("Xizmatga ulanib bo'lmadi: " + str(e)[:120], 502)
+    if not pr: return err("Bu davlat hozir mavjud emas")
+    if not adjust(uid, -pr["price"], "number", country, pr["name"]): return jsonify(error="Balans yetmaydi", need=pr["price"], balance=bal(uid)), 402
+    try: r = prov().buy(country)
+    except Exception as e:
+        adjust(uid, pr["price"], "refund", "buyfail", "Raqam olinmadi"); return err("Raqam olib bo'lmadi: " + str(e)[:150] + " (pul qaytarildi)", 502)
+    now = time.time(); exp = now + int(c.get("num_timeout", 20)) * 60
+    _, nid = Q("insert into numbers(uid,country,cname,price,act,phone,status,created,expires) values(?,?,?,?,?,?,?,?,?)", (uid, country, pr["name"], pr["price"], r["act"], r["phone"], "waiting", now, exp))
+    return jsonify(id=nid, phone=r["phone"], cname=pr["name"], flag=pr["flag"], price=pr["price"], left=int(exp - now), balance=bal(uid))
+def num_view(nid, uid):
+    r = Q("select uid,status,code,phone,expires,cname,country,price from numbers where id=?", (nid,))[0]
+    if not r or r[0][0] != uid: return None
+    _, status, code, phone, exp, cname, country, price = r[0]
+    return {"id": nid, "status": status, "code": code, "phone": phone, "left": max(0, int(exp - time.time())), "cname": cname, "flag": flag(country), "price": price}
+@app.get("/api/number/status")
+def num_status():
+    uid = tuid()
+    if not uid: return err("Telegram ichidagi Mini App'da oching", 401)
+    try: nid = int(request.args.get("id", 0))
+    except Exception: nid = 0
+    v = num_view(nid, uid)
+    if not v: return err("Topilmadi", 404)
+    if v["status"] == "waiting":
+        r = Q("select act,expires from numbers where id=?", (nid,))[0][0]
+        if time.time() > r[1]: ok, msg = num_refund(nid); v = num_view(nid, uid); v["msg"] = msg
+        else:
+            try: st = prov().status(r[0])
+            except Exception: st = {"state": "waiting"}
+            if st.get("state") == "code": num_done(nid, st["code"]); v = num_view(nid, uid)
+    v["balance"] = bal(uid); return nostore(v)
+@app.post("/api/number/cancel")
+def num_cancel():
+    uid = tuid()
+    if not uid: return err("Telegram ichidagi Mini App'da oching", 401)
+    try: nid = int((request.json or {}).get("id", 0))
+    except Exception: nid = 0
+    if not num_view(nid, uid): return err("Topilmadi", 404)
+    ok, msg = num_refund(nid); return jsonify(ok=ok, msg=msg, balance=bal(uid))
+@app.get("/api/number/active")
+def num_active():
+    uid = tuid()
+    if not uid: return nostore({"active": None})
+    r = Q("select id from numbers where uid=? and status='waiting' order by id desc limit 1", (uid,))[0]
+    return nostore({"active": num_view(r[0][0], uid) if r else None})
+
+# --- admin: balans va to'lovlar ---
+@app.post("/api/admin/balance")
+def abalance():
+    if who() != MAIN: return err("Faqat asosiy admin", 403)
+    d = request.json or {}; uid = str(d.get("uid", ""))
+    try: delta = int(float(d.get("delta")))
+    except Exception: return err("Summa noto'g'ri")
+    if not uid or not delta: return err("Foydalanuvchi va summa kerak")
+    if not adjust(uid, delta, "admin", "a", str(d.get("note", ""))[:60] or "Admin o'zgartirdi"): return err("Balans manfiy bo'lib qoladi")
+    notify(uid, f"💰 Balansingiz {'+' if delta > 0 else ''}{money(delta)} so'mga o'zgartirildi. Hozirgi balans: {money(bal(uid))} so'm")
+    return jsonify(ok=1, balance=bal(uid))
+@app.get("/api/admin/money")
+def amoney():
+    if not who(): return err("Kirish kerak", 401)
+    return nostore({"topups": rows("select t.id,t.uid,t.amount,t.status,t.ts,u.name,u.username from topups t left join users u on u.uid=t.uid order by t.id desc limit 50", ("id", "uid", "amount", "status", "ts", "name", "username")),
+                    "numbers": rows("select n.id,n.uid,n.cname,n.price,n.phone,n.status,n.created,u.name,u.username from numbers n left join users u on u.uid=n.uid order by n.id desc limit 50", ("id", "uid", "cname", "price", "phone", "status", "ts", "name", "username"))})
+@app.post("/api/admin/topup")
+def atopup():
+    if not who(): return err("Kirish kerak", 401)
+    d = request.json or {}; res = topup_apply(d.get("id"), d.get("st") == "ok")
+    if res == "none": return err("Topilmadi", 404)
+    if res == "done": return err("Allaqachon hal qilingan")
+    return jsonify(ok=1)
 
 CH_SQL = "select id,title,descr,price,ts,coalesce(kind,'channel') from channels where coalesce(kind,'channel')=? order by id"
 def chlist():
@@ -644,6 +1030,7 @@ def tgwebhook(sec):
     return "ok"
 CHECK = len(sys.argv) > 1 and sys.argv[1] == "check"
 if BOT and not CHECK: threading.Thread(target=(start_webhook if WEBHOOK else poll), daemon=True).start()
+if not CHECK: threading.Thread(target=sweeper, daemon=True).start()
 if __name__ == "__main__":
     if CHECK: selfcheck()
     else: app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

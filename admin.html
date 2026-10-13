@@ -34,6 +34,7 @@ a.lnk{color:#ff7a8a;text-decoration:none}
  <button class="tb on" data-t="home" onclick="tab('home')">🏠 Asosiy</button>
  <button class="tb" data-t="chats" onclick="tab('chats')">💬 Savollar</button>
  <button class="tb" data-t="orders" onclick="tab('orders')">🧾 Buyurtmalar</button>
+ <button class="tb" data-t="money" onclick="tab('money')">💰 Balans</button>
  <button class="tb" data-t="chan" onclick="tab('chan')">📺 Kanallar</button>
  <button class="tb" data-t="vid" onclick="tab('vid')">🎬 Videolar</button>
  <button class="tb" data-t="plans" onclick="tab('plans')">🎓 Kurslar</button>
@@ -45,6 +46,7 @@ a.lnk{color:#ff7a8a;text-decoration:none}
  <div class="c"><h2>So‘nggi buyurtmalar</h2><div id="h_o"></div></div>
  <div class="c"><h2>So‘nggi savollar</h2><div id="h_c"></div></div>
 </section>
+<section class="tab" id="t_money"><div class="c"><h2>Balans to‘ldirish so‘rovlari</h2><div id="tl"></div></div><div class="c"><h2>Sotilgan raqamlar</h2><div id="nl"></div></div></section>
 <section class="tab" id="t_chan"><div class="c"><h2 id="chform">Yangi kanal qo‘shish</h2>
 <label>Rasmlar (ixtiyoriy, ko‘pi bilan 10 ta): <span id="chcnt">0/10</span></label><label class="upl"><input type="file" accept="image/*" multiple hidden onchange="pickCh(this)">🖼️ Galereyadan rasmlarni tanlash</label><div id="chimgs" class="thumbs"></div>
 <label>Nomi (ixtiyoriy)</label><input id="cht" placeholder="Masalan: PixelUz kanali"><label>Izoh</label><textarea id="chd" placeholder="Kanal haqida: obunachilar, mavzu, daromad..."></textarea><label>Narxi</label><input id="chpr" placeholder="Masalan: 500 000">
@@ -52,10 +54,11 @@ a.lnk{color:#ff7a8a;text-decoration:none}
 <div class="c"><h2 id="chlh">Qo‘yilgan kanallar</h2><div id="chl"></div></div></section>
 <section class="tab" id="t_chats"><div class="c"><h2>Nima so‘rashyapti</h2><div id="cl"></div></div></section>
 <section class="tab" id="t_orders"><div class="c"><h2>Kim nima sotib olayapti</h2><div id="ol"></div></div></section>
-<section class="tab" id="t_plans"><div class="c"><h2>Kurslar</h2><div id="pl"></div></div><button style="width:100%;padding:16px" onclick="save()">💾 Saqlash</button></section>
+<section class="tab" id="t_plans"><div class="c"><h2>📚 Kurs haqida umumiy ma‘lumot</h2><label>Chat bot shu matndan qidirib, to‘liq javob beradi (dars mavzulari, kim uchun, natija, savol-javoblar, to‘lov... Abzaslar orasini bo‘sh qator bilan ajrating)</label><textarea id="kb" rows="12" style="width:100%" placeholder="Masalan: Kurs 30 kun davom etadi. Darslar...\n\nKimlar uchun: ..."></textarea></div><div class="c"><h2>Kurslar</h2><div id="pl"></div></div><button style="width:100%;padding:16px" onclick="save()">💾 Saqlash</button></section>
 <section class="tab" id="t_set">
  <div class="c"><h2>Tepadagi lenta yozuvlari</h2><label>Bosh sahifa</label><input id="mh"><label>Kurs bo‘limi</label><input id="mc"></div>
  <div class="c"><h2>Kunlik savol limitlari</h2><label>⚡ YouTube AI Plus (Gemini, savol va tahlil): har bir foydalanuvchi uchun 24 soatda nechta savol (0 = cheksiz)</label><input id="dl" inputmode="numeric"><label>💎 YouTube AI Pro (hali ulanmagan, keyin sozlanadi): har bir foydalanuvchi uchun 24 soatda nechta savol (0 = cheksiz)</label><input id="dlp" inputmode="numeric"><label>🌐 Internetdan qidirish (Plus javoblari uchun)</label><select id="srch"><option value="0">O‘chiq</option><option value="1">Yoqilgan</option></select></div>
+ <div class="c"><h2>📱 Raqam xizmati</h2><label>Xizmat</label><select id="nmon"><option value="0">Yopiq</option><option value="1">Yoqilgan</option></select><label>Dollar kursi (1 $ necha so‘m)</label><input id="nmrate" inputmode="numeric"><label>Ustama foiz (%)</label><input id="nmmk" inputmode="numeric"><label>Raqam kutish vaqti (daqiqa)</label><input id="nmto" inputmode="numeric"></div>
  <div class="c"><h2>🖼️ Rasmlar va logolar</h2><div id="imgset"></div><small style="color:var(--m);display:block;margin-top:8px">Rasm almashtirilgach, saytni yopib qayta oching.</small></div>
  <div class="c"><h2>To‘lov kartasi</h2><label>Karta raqami</label><input id="card"><label>Karta egasi (ixtiyoriy)</label><input id="holder"></div>
  <button style="width:100%;padding:16px" onclick="save()">💾 Saqlash</button>
@@ -73,15 +76,15 @@ function note(t){const m=$('msg');m.textContent=t;m.style.display='block';clearT
 async function api(u,b){const r=await fetch(u,{method:b?'POST':'GET',headers:{'Content-Type':'application/json','X-Init':INIT},body:b?JSON.stringify(b):undefined});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('Xato '+r.status));return j}
 const who=u=>esc(u.name||'Noma‘lum')+(u.username?' <a class="lnk" href="https://t.me/'+esc(u.username)+'" target="_blank">@'+esc(u.username)+'</a>':'');
-const stt=s=>s==='ok'?'✅ tasdiqlangan':s==='no'?'❌ rad etilgan':'⏳ kutilmoqda';
+const stt=s=>s==='paid'?'💰 balansdan to‘langan':s==='ok'?'✅ tasdiqlangan':s==='no'?'❌ rad etilgan':'⏳ kutilmoqda';
 function tab(t){const sec=t==='vid'?'chan':t;if(t==='chan'||t==='vid'){const nk=t==='vid'?'video':'channel';if(nk!==K){K=nk;clearCh()}setKindUI()}
   document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id==='t_'+sec));document.querySelectorAll('.tb').forEach(e=>e.classList.toggle('on',e.dataset.t===t));
-  ({home:loadHome,chan:loadChan,vid:loadChan,chats:loadChats,orders:loadOrders,plans:async()=>{},set:loadData})[t]().catch(e=>note(e.message))}
+  ({home:loadHome,chan:loadChan,vid:loadChan,chats:loadChats,orders:loadOrders,plans:async()=>{},money:loadMoney,set:loadData})[t]().catch(e=>note(e.message))}
 async function loadData(){const d=await api('/api/admin/data');MAIN=d.main;IMGS=d.imgs||{};drawImgsSet();
   $('s1').textContent=d.users;$('s2').textContent=d.online;$('s3').textContent=d.chats;$('s4').textContent=d.orders_total;$('s5').textContent=d.orders_new;$('s6').textContent=d.admins.length;
   $('addbox').style.display=MAIN?'block':'none';
   $('ad').innerHTML=d.admins.map(i=>`<div class="row"><span>${i}</span>${MAIN?`<button class="x" onclick="delAdm(${i})">O‘chirish</button>`:''}</div>`).join('');
-  if(!FILLED){FILLED=true;const c=d.cfg;$('mh').value=c.mq_home;$('mc').value=c.mq_course;$('card').value=c.card;$('holder').value=c.holder;$('dl').value=(c.daily_limit==null?20:c.daily_limit);$('dlp').value=(c.pro_limit==null?10:c.pro_limit);$('srch').value=c.search?'1':'0';AP=c.plans;drawPlans()}
+  if(!FILLED){FILLED=true;const c=d.cfg;$('mh').value=c.mq_home;$('mc').value=c.mq_course;$('card').value=c.card;$('kb').value=c.kb||'';$('holder').value=c.holder;$('dl').value=(c.daily_limit==null?20:c.daily_limit);$('dlp').value=(c.pro_limit==null?10:c.pro_limit);$('srch').value=c.search?'1':'0';$('nmon').value=c.num_on?'1':'0';$('nmrate').value=c.usd_rate==null?12500:c.usd_rate;$('nmmk').value=c.num_markup==null?30:c.num_markup;$('nmto').value=c.num_timeout==null?20:c.num_timeout;AP=c.plans;drawPlans()}
   return d}
 async function loadHome(){loadUsers().catch(()=>{});const d=await loadData();
   $('h_o').innerHTML=d.orders.slice(0,5).map(o=>`<div class="it"><b>#${o.id} ${esc(o.plan)}</b> · ${esc(o.price)} so‘m<span class="st">${stt(o.status)}</span><small>${esc(o.contact||'')}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>';
@@ -89,13 +92,13 @@ async function loadHome(){loadUsers().catch(()=>{});const d=await loadData();
   $('h_c').innerHTML=c.map(x=>`<div class="it"><div class="q">${esc(x.q).slice(0,140)}</div><small>${x.model==='pro'?'💎 Pro':'⚡ Plus'} · ${who(x)} · ${ago(x.ts)}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
 async function loadUsers(){USERS=await api('/api/admin/users');drawUsers()}
 function drawUsers(){const q=($('uq').value||'').toLowerCase();
-  $('ul').innerHTML=USERS.filter(u=>!q||((u.name||'')+(u.username||'')+u.uid).toLowerCase().includes(q)).map(u=>`<div class="it"><b>${who(u)}</b><small>ID ${esc(u.uid)} · ${ago(u.last)} · ${u.chats} savol · ${u.orders} buyurtma</small>${/^\d+$/.test(u.uid)&&!u.username?`<small><a class="lnk" href="tg://user?id=${u.uid}">💬 Telegramda ochish</a></small>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+  $('ul').innerHTML=USERS.filter(u=>!q||((u.name||'')+(u.username||'')+u.uid).toLowerCase().includes(q)).map(u=>`<div class="it"><b>${who(u)}</b><small>ID ${esc(u.uid)} · ${ago(u.last)} · ${u.chats} savol · ${u.orders} buyurtma · 💰 ${fm(u.bal||0)} so‘m</small>${MAIN?`<small><button class="x" onclick="adjBal('${u.uid}')">± Balans</button></small>`:''}${/^\d+$/.test(u.uid)&&!u.username?`<small><a class="lnk" href="tg://user?id=${u.uid}">💬 Telegramda ochish</a></small>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
 async function loadChats(){const c=await api('/api/admin/chats?limit=60');
   $('cl').innerHTML=c.map(x=>`<div class="it"><div class="q">${esc(x.q).slice(0,300)}</div><div class="a">${esc(x.a).slice(0,350)}</div><small>${x.model==='pro'?'💎 Pro':'⚡ Plus'} · ${who(x)} · ${ago(x.ts)}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
 async function loadOrders(){const o=await api('/api/admin/orders');
-  $('ol').innerHTML=o.map(x=>`<div class="it"><b>#${x.id} ${esc(x.plan)}</b> · ${esc(x.price)} so‘m<span class="st">${stt(x.status)}</span><small>${who(x)} · ${esc(x.contact||'')} · ${ago(x.ts)}</small>${x.status==='new'?`<div class="bar2" style="margin-top:8px"><button onclick="dec(${x.id},'ok')">✅ Tasdiqlash</button><button class="x" onclick="dec(${x.id},'no')">❌ Rad etish</button></div>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+  $('ol').innerHTML=o.map(x=>`<div class="it"><b>#${x.id} ${esc(x.plan)}</b> · ${esc(x.price)} so‘m<span class="st">${stt(x.status)}</span><small>${who(x)} · ${esc(x.contact||'')} · ${ago(x.ts)}</small>${(x.status==='new'||x.status==='paid')?`<div class="bar2" style="margin-top:8px"><button onclick="dec(${x.id},'ok')">✅ Tasdiqlash</button><button class="x" onclick="dec(${x.id},'no')">❌ Rad etish</button></div>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
 async function dec(id,st){try{await api('/api/admin/order',{id,st});note('Bajarildi');loadOrders()}catch(e){note(e.message)}}
-async function save(){const body={mq_home:$('mh').value,mq_course:$('mc').value,card:$('card').value,holder:$('holder').value,daily_limit:$('dl').value,pro_limit:$('dlp').value,search:$('srch').value};if(FILLED)body.plans=collect();
+async function save(){const body={mq_home:$('mh').value,mq_course:$('mc').value,card:$('card').value,holder:$('holder').value,daily_limit:$('dl').value,pro_limit:$('dlp').value,search:$('srch').value,num_on:$('nmon').value,usd_rate:$('nmrate').value,num_markup:$('nmmk').value,num_timeout:$('nmto').value};if(FILLED){body.plans=collect();body.kb=$('kb').value}
   try{await api('/api/admin/cfg',body);note('✅ Saqlandi')}catch(e){note(e.message)}}
 async function addAdm(){try{await api('/api/admin/admin',{id:$('nid').value.trim()});$('nid').value='';loadData();note('Admin qo‘shildi')}catch(e){note(e.message)}}
 async function delAdm(i){try{await api('/api/admin/admin',{id:i,del:1});loadData()}catch(e){note(e.message)}}
@@ -130,6 +133,14 @@ const SLOTS=[['logo','Asosiy logo (robot): tepada, chatda, menyuda, ko‘p joyda
 function drawImgsSet(){const e=$('imgset');if(!e)return;e.innerHTML=SLOTS.map(([k,t])=>`<div class="it" style="display:flex;gap:12px;align-items:center"><div style="width:64px;height:64px;border-radius:50%;flex:none;background:#2b1519 ${IMGS[k]?`url(${IMGS[k]}) center/cover`:''};display:grid;place-content:center;font-size:11px;color:var(--m)">${IMGS[k]?'':'standart'}</div><div style="flex:1"><b style="font-size:13px">${t}</b><div class="bar2" style="margin-top:8px"><label class="x" style="padding:9px 12px;border-radius:12px;cursor:pointer;font-size:13px;color:#fff">Almashtirish<input type="file" accept="image/*" hidden onchange="setImg('${k}',this)"></label>${IMGS[k]?`<button class="x" onclick="resetImg('${k}')">Standart</button>`:''}</div></div></div>`).join('')}
 async function setImg(k,i){const f=i.files[0];i.value='';if(!f)return;const d=await shrink(f,512);if(!d)return note('Rasm o‘qilmadi');try{await api('/api/admin/img',{key:k,image:d});note('✅ Saqlandi');loadData()}catch(e){note(e.message)}}
 async function resetImg(k){try{await api('/api/admin/img',{key:k,image:null});note('Standart rasmga qaytdi');loadData()}catch(e){note(e.message)}}
+
+const fm=n=>String(Math.round(n||0)).replace(/\B(?=(\d{3})+(?!\d))/g,' ');
+function askNum(title,cb){const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:20;display:grid;place-content:center;padding:20px';d.innerHTML='<div class="c" style="min-width:290px"><h2>'+title+'</h2><input id="dlgv" inputmode="numeric" placeholder="Masalan: 20000 yoki -5000"><div class="bar2"><button id="dlgok">OK</button><button class="x" id="dlgx">Bekor</button></div></div>';document.body.appendChild(d);$('dlgx').onclick=()=>d.remove();$('dlgok').onclick=()=>{const v=$('dlgv').value;d.remove();cb(v)}}
+function adjBal(uid){askNum('Balansni o‘zgartirish (so‘m, minus ham mumkin)',async v=>{try{await api('/api/admin/balance',{uid,delta:v});note('✅ Balans yangilandi');loadUsers()}catch(e){note(e.message)}})}
+async function loadMoney(){const j=await api('/api/admin/money');
+ $('tl').innerHTML=j.topups.map(x=>`<div class="it"><b>#${x.id} ${fm(x.amount)} so‘m</b><span class="st">${x.status==='ok'?'✅ tasdiqlangan':x.status==='no'?'❌ rad etilgan':'⏳ kutilmoqda'}</span><small>${who(x)} · ${ago(x.ts)}</small>${x.status==='new'?`<div class="bar2" style="margin-top:8px"><button onclick="decTop(${x.id},'ok')">✅ Tasdiqlash</button><button class="x" onclick="decTop(${x.id},'no')">❌ Rad etish</button></div>`:''}</div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>';
+ $('nl').innerHTML=j.numbers.map(x=>`<div class="it"><b>#${x.id} ${esc(x.cname)}</b> · ${fm(x.price)} so‘m<span class="st">${({waiting:'⏳ kutilmoqda',done:'✅ SMS keldi',cancelled:'↩️ qaytarilgan'})[x.status]||esc(x.status)}</span><small>${who(x)} · ${esc(x.phone)} · ${ago(x.ts)}</small></div>`).join('')||'<small style="color:var(--m)">Hali yo‘q</small>'}
+async function decTop(id,st){try{await api('/api/admin/topup',{id,st});note('Bajarildi');loadMoney()}catch(e){note(e.message)}}
 (async()=>{try{await loadHome();$('app').style.display='block'}catch(e){$('deny').style.display='block'}})();
 setInterval(()=>{if($('app').style.display==='block'&&$('t_home').classList.contains('on'))loadHome().catch(()=>{})},20000);
 </script></body></html>
