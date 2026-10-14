@@ -47,7 +47,7 @@ for col in ("amount integer", "paid_by text"):
 Q("insert or ignore into admins values(?)", (MAIN,))
 
 DEF = {"mq_home": "UlugbekPardayev YOUTUBE AI Chat bot", "mq_course": "Ulugʻbek Pardayev Kurslari",
-       "card": "5614 6814 0659 1283", "holder": "", "daily_limit": 10, "pro_limit": 10, "search": 0, "usd_rate": 12500, "num_markup": 30, "num_on": 0, "num_timeout": 20, "kb": "",
+       "card": "5614 6814 0659 1283", "holder": "", "daily_limit": 10, "pro_limit": 10, "search": 0, "usd_rate": 12500, "num_markup": 30, "num_add": 2000, "img_price": 500, "img_free": 2, "img_ai": 1, "num_on": 0, "num_timeout": 20, "kb": "",
        "plans": [{"id": "free", "name": "BEPUL", "price": "Bepul", "sub": "Tekin dars", "info": "", "design": "green", "icon": "🎁", "badge": "Tekin", "link": "https://t.me/tekindarsyoutube/14"},
                  {"id": "hup", "name": "HUP", "price": "99 000", "sub": "Boshlash uchun", "info": "", "design": "silver", "icon": "🚀", "badge": ""},
                  {"id": "pro", "name": "PRO", "price": "855 000", "sub": "Umrbod kurs + yopiq guruh", "info": "", "design": "red", "icon": "⚡", "badge": "Mashhur"},
@@ -82,9 +82,14 @@ def handle(x):
             kb = [[webapp("🤖 Chat botga kirish", "/")]]
         tg("sendMessage", chat_id=uid, text="Assalomu alaykum 👋\nUlugʻbek Pardayev ning Chat bot AI botiga xush kelibsiz!\n\nKirish uchun pastdagi tugmani bosing:" if kb else "Bot ishlayapti, lekin PUBLIC_URL (https) hali sozlanmagan.",
            **({"reply_markup": {"inline_keyboard": kb}} if kb else {}))
-    elif m and m.get("text", "").startswith("/admin") and URL.startswith("https"):
-        if m["chat"]["id"] in admins():
-            tg("sendMessage", chat_id=m["chat"]["id"], text="Admin panel:", reply_markup={"inline_keyboard": [[webapp("⚙️ Ochish", "/admin")]]})
+    elif m and m.get("text", "").startswith("/admin"):
+        cid = m["chat"]["id"]
+        if not URL.startswith("https"):
+            tg("sendMessage", chat_id=cid, text="PUBLIC_URL (https) hali sozlanmagan. Botni 'bash run.sh' bilan qayta ishga tushiring.")
+        elif cid in admins():
+            tg("sendMessage", chat_id=cid, text="Admin panel:", reply_markup={"inline_keyboard": [[webapp("⚙️ Ochish", "/admin")]]})
+        else:
+            tg("sendMessage", chat_id=cid, text=f"Siz admin emassiz.\nSizning Telegram ID raqamingiz: {cid}\n\nAsosiy admin shu raqamni admin panelida qo'shishi kerak.")
     if cb:
         if cb["from"]["id"] not in admins():
             return tg("answerCallbackQuery", callback_query_id=cb["id"], text="Ruxsat yo'q")
@@ -470,21 +475,140 @@ def forget():
         Q("insert or replace into forget values(?,?)", (uid, time.time())); Q("delete from memory where uid=?", (uid,))
     return jsonify(ok=1)
 
+HFK = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY") or ""
+HFM = os.getenv("HF_IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell")
+HF_URL = os.getenv("HF_IMAGE_URL", "")  # ixtiyoriy: to'liq manzilni qo'lda berish
+RATIO_WH = {"16:9": (1024, 576), "1:1": (1024, 1024), "9:16": (576, 1024), "4:3": (1024, 768), "3:4": (768, 1024)}
+def img_provider(): return (os.getenv("IMAGE_PROVIDER") or "gemini").lower()
+
+def image_hf(prompt, ratio):
+    w, h = RATIO_WH.get(ratio, (1024, 576))
+    urls = [HF_URL] if HF_URL else [f"https://router.huggingface.co/hf-inference/models/{HFM}",
+                                    f"https://router.huggingface.co/together/v1/images/generations"]
+    last = ""
+    for u in urls:
+        try:
+            if "together" in u:
+                r = requests.post(u, timeout=120, headers={"Authorization": f"Bearer {HFK}"},
+                                  json={"model": HFM, "prompt": prompt, "width": w, "height": h, "steps": 4, "response_format": "base64"})
+                if r.ok:
+                    b = (r.json().get("data") or [{}])[0].get("b64_json")
+                    if b: return "data:image/jpeg;base64," + b
+            else:
+                r = requests.post(u, timeout=120, headers={"Authorization": f"Bearer {HFK}", "Accept": "image/png"},
+                                  json={"inputs": prompt, "parameters": {"width": w, "height": h}})
+                ct = r.headers.get("content-type", "")
+                if r.ok and ct.startswith("image/"):
+                    return f"data:{ct.split(';')[0]};base64," + base64.b64encode(r.content).decode()
+            last = f"{r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            last = str(e)[:200]
+    raise Exception(last or "HF javob bermadi")
+
+# ---- Rasm: 2 ta bepul, keyin pullik (balansdan) ----
+def img_conf():
+    c = cfg(); return int(c.get("img_free", 2) or 0), int(c.get("img_price", 500) or 0)
+GIMG = [m.strip() for m in ([os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")] +
+        os.getenv("GEMINI_IMAGE_FALLBACK", "gemini-3.1-flash-image-preview,gemini-2.5-flash-image").split(",")) if m.strip()]
+Q("create table if not exists imgfree(uid text primary key,used integer default 0)")
+
+def img_free_left(uid):
+    r = Q("select used from imgfree where uid=?", (uid,))[0]; return max(0, img_conf()[0] - (r[0][0] if r else 0))
+def img_take_free(uid):
+    lim = img_conf()[0]
+    with lock:
+        db.execute("insert or ignore into imgfree(uid,used) values(?,0)", (uid,))
+        c = db.execute("update imgfree set used=used+1 where uid=? and used<?", (uid, lim)); db.commit()
+        return c.rowcount > 0
+def img_give_free(uid): Q("update imgfree set used=max(used-1,0) where uid=?", (uid,))
+def img_info(uid):
+    fr, pr = img_conf(); return {"free_left": img_free_left(uid), "free_total": fr, "price": pr, "balance": bal(uid)}
+
+IK = os.getenv("GEMINI_IMAGE_API_KEY") or GK  # rasm uchun alohida kalit (bo'lmasa GEMINI_API_KEY)
+CFA = os.getenv("CF_ACCOUNT_ID", ""); CFT = os.getenv("CF_API_TOKEN", "")
+CFM = os.getenv("CF_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
+def image_cf(prompt, ratio):
+    if not (CFA and CFT): raise Exception("CF_ACCOUNT_ID yoki CF_API_TOKEN .env faylda yo'q")
+    w, h = RATIO_WH.get(ratio, (1024, 576)); url = f"https://api.cloudflare.com/client/v4/accounts/{CFA}/ai/run/{CFM}"
+    last = ""
+    for body in ({"prompt": prompt, "steps": 6, "width": w, "height": h}, {"prompt": prompt, "steps": 6}):
+        r = requests.post(url, headers={"Authorization": f"Bearer {CFT}"}, json=body, timeout=120)
+        try: j = r.json()
+        except Exception: j = {}
+        img = ((j.get("result") or {}).get("image")) if isinstance(j, dict) else None
+        if r.ok and img: return "data:image/jpeg;base64," + img
+        last = f"{r.status_code}: " + str((j.get("errors") or j) if isinstance(j, dict) else j)[:200]
+        if r.status_code not in (400, 422): break
+    raise Exception("Cloudflare " + last)
+
+def image_gemini(prompt, ratio):
+    if not IK: raise Exception("GEMINI_IMAGE_API_KEY (yoki GEMINI_API_KEY) .env faylda yo'q")
+    last = ""
+    for model in GIMG:
+        r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", timeout=120,
+                          headers={"x-goog-api-key": IK},
+                          json={"contents": [{"parts": [{"text": prompt}]}],
+                                "generationConfig": {"imageConfig": {"aspectRatio": ratio}}})
+        try: j = r.json()
+        except Exception: j = {}
+        for c in j.get("candidates", []):
+            for p in c.get("content", {}).get("parts", []):
+                i = p.get("inlineData") or p.get("inline_data")
+                if i: return f"data:{i.get('mimeType') or i.get('mime_type')};base64,{i['data']}"
+        msg = (j.get("error") or {}).get("message") or (j.get("promptFeedback") or {}).get("blockReason") or "javobda rasm yo'q"
+        last = f"{model}: {msg}"; print("[image] gemini:", last, flush=True)
+        if r.status_code == 404 or "not found" in str(msg).lower() or "not supported" in str(msg).lower(): continue
+        break
+    raise Exception(last[:250])
+
+@app.get("/api/imginfo")
+def imginfo():
+    uid = tuid()
+    if not uid: return err("Faqat Telegram ichidagi Mini App'da ishlaydi", 401)
+    return nostore(img_info(uid))
+
+IMG_SYS = ("You are an expert prompt writer for the FLUX image model, specialised in viral YouTube thumbnails for an AMERICAN audience (MrBeast-style). "
+           "The user describes in Uzbek (or any language) what they need. Reply with ONE English image prompt only: no explanations, no quotes, max 70 words. "
+           "Rules: one clear main subject, strong exaggerated facial emotion if a person is present, bright saturated colors, high contrast, dramatic rim lighting, "
+           "shallow depth of field, ultra detailed, sharp focus, professional photo look, composition matching the given aspect ratio, "
+           "leave clean empty space on one side for the title text. Do NOT put any text, letters, numbers, logos or watermarks in the image. Keep the user's idea exactly.")
+def to_en_prompt(text, ratio):
+    if not cfg().get("img_ai", 1): return text
+    try:
+        out = re.sub(r"\s+", " ", chat_gemini([], f"Aspect ratio: {ratio}\nUser idea: {text}", None, IMG_SYS, plain=True)).strip().strip("\"'`")[:700]
+        if len(out) >= 10 and not out.startswith("Javob topilmadi"): return out
+    except Exception as e: print("[image] prompt o'girish xatosi:", str(e)[:150], flush=True)
+    return text
+
 @app.post("/api/image")
 def image():
     d = request.json or {}
-    if not GK: return err("GEMINI_API_KEY .env faylda yo'q")
-    r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{GM}:generateContent", timeout=120,
-                      headers={"x-goog-api-key": GK},
-                      json={"contents": [{"parts": [{"text": str(d.get("prompt", ""))[:2000]}]}],
-                            "generationConfig": {"imageConfig": {"aspectRatio": d.get("ratio", "16:9")}}})
-    for c in r.json().get("candidates", []):
-        for p in c.get("content", {}).get("parts", []):
-            i = p.get("inlineData") or p.get("inline_data")
-            if i: return jsonify(image=f"data:{i.get('mimeType') or i.get('mime_type')};base64,{i['data']}")
-    try: m = r.json().get("error", {}).get("message")
-    except Exception: m = None
-    return err((m or "Rasm yaratilmadi (javobda rasm yo'q)")[:300], 502)
+    uid = tuid()
+    if not uid: return err("Rasm yaratish faqat Telegram ichidagi Mini App'da ishlaydi", 401)
+    prompt = str(d.get("prompt", "")).strip()[:1500]; ratio = d.get("ratio", "16:9")
+    if ratio not in RATIO_WH: ratio = "16:9"
+    if not prompt: return err("Rasm g'oyasini yozing")
+    price = img_conf()[1]
+    free = img_take_free(uid)
+    if not free and not adjust(uid, -price, "image", note="Rasm yaratish"):
+        return err(f"Balans yetarli emas. Rasm narxi {money(price)} so'm, balansingiz {money(bal(uid))} so'm. Balansni to'ldiring.", 402)
+    try:
+        pen = to_en_prompt(prompt, ratio)
+        print("[image] provayder:", img_provider(), "| uid:", uid, "| bepul:", bool(free), "| prompt:", pen[:120], flush=True)
+        out = {"hf": image_hf, "cf": image_cf}.get(img_provider(), image_gemini)(pen, ratio)
+    except Exception as e:
+        if free: img_give_free(uid)
+        else: adjust(uid, price, "refund", note="Rasm yaratilmadi, pul qaytarildi")
+        print("[image] xato:", e, flush=True)
+        return err(("Rasm yaratilmadi, hech narsa yechilmadi. " + str(e))[:300], 400)
+    return jsonify(image=out, prompt_en=pen, free_used=bool(free), **img_info(uid))
+
+@app.get("/api/history")
+def api_history():
+    uid = uid_of({"uid": request.args.get("uid", "")})
+    if not uid: return nostore({"items": []})
+    rows = Q("select q,a from chats where uid=? and ts>? order by id desc limit 40", (uid, forgot_ts(uid)))[0][::-1]
+    return nostore({"items": [{"q": q, "a": a} for q, a in rows]})
 
 def tgphoto(chat, data, caption, kb):
     try:
@@ -541,7 +665,8 @@ def acfg():
     d = request.json or {}; c = cfg()
     if "search" in d: c["search"] = 1 if str(d["search"]).lower() in ("1", "true") else 0
     if "num_on" in d: c["num_on"] = 1 if str(d["num_on"]).lower() in ("1", "true") else 0
-    for nk, lo, hi in (("usd_rate", 1, 1000000), ("num_markup", 0, 500), ("num_timeout", 3, 60)):
+    if "img_ai" in d: c["img_ai"] = 1 if str(d["img_ai"]).lower() in ("1", "true") else 0
+    for nk, lo, hi in (("usd_rate", 1, 1000000), ("num_markup", 0, 500), ("num_timeout", 3, 60), ("num_add", 0, 10000000), ("img_price", 0, 1000000), ("img_free", 0, 100)):
         if nk in d:
             try: c[nk] = max(lo, min(int(float(d[nk])), hi))
             except Exception: pass
@@ -566,8 +691,14 @@ def acfg():
 def aadm():
     if who() != MAIN: return err("Faqat asosiy admin", 403)
     d = request.json or {}
-    try: i = int(d.get("id"))
-    except Exception: return err("ID noto'g'ri")
+    raw = str(d.get("id", "")).strip()
+    if raw.lstrip("@").isdigit() and not raw.startswith("@"): i = int(raw)
+    else:
+        un = raw.lstrip("@").strip()
+        r = Q("select uid from users where lower(username)=lower(?)", (un,))[0] if un else []
+        if not r or not str(r[0][0]).isdigit():
+            return err("@" + un + " topilmadi. Bu odam botga /start bosib, Mini App'ni bir marta ochgan bo'lishi kerak. Yoki uning raqamli ID sini yozing (u botga /admin yozsa, bot ID ni yuboradi).")
+        i = int(r[0][0])
     if d.get("del"):
         if i != MAIN: Q("delete from admins where id=?", (i,))
     else: Q("insert or ignore into admins values(?)", (i,))
@@ -821,7 +952,7 @@ def num_prices():
     if time.time() - _pc["t"] > 60: _pc["v"] = prov().prices(); _pc["t"] = time.time()
     c = cfg(); out = []
     for p in _pc["v"]:
-        som = int(math.ceil(p["usd"] * c["usd_rate"] * (1 + c["num_markup"] / 100.0) / 100.0)) * 100
+        som = int(math.ceil((p["usd"] * c["usd_rate"] + c.get("num_add", 0)) / 100.0)) * 100
         out.append({"country": p["country"], "name": p["name"], "flag": flag(p.get("iso") or p["country"]), "price": som, "count": p.get("count")})
     out.sort(key=lambda x: x["price"]); return out
 def num_done(nid, code):

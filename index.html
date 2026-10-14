@@ -12,6 +12,7 @@ html,body{height:100%}
 body{font-family:Manrope,system-ui,sans-serif;background:var(--bg);color:var(--t);overflow:hidden}
 body:before{content:"";position:fixed;inset:0;background:radial-gradient(90% 50% at 85% 0,#4a0712 0,transparent 70%),radial-gradient(70% 40% at 0 100%,#2e050c 0,transparent 70%);pointer-events:none}
 #app{position:relative;height:100%;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0)}
+#app.fs{padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px))}
 header{display:flex;align-items:center;gap:12px;padding:12px 14px}
 .burger{width:46px;height:46px;border-radius:16px;background:var(--p);border:1px solid var(--l);display:grid;place-content:center;gap:5px;cursor:pointer}
 .burger i{display:block;width:21px;height:3px;background:#fff;border-radius:3px}
@@ -398,10 +399,10 @@ h2{font-family:var(--h);font-size:14px;margin:26px 4px 14px}
 
     <section class="page" id="img">
       <div class="card ph">
-        <span class="pill">🍌 Nano Banana</span>
+        <span class="pill">🎨 AI rasm</span>
         <h3 style="margin-top:14px">Rasm yaratish</h3>
         <div class="lbl">Prompt</div>
-        <textarea class="ta" id="pm" placeholder="Qanday rasm kerak? Batafsil yozing..."></textarea>
+        <textarea class="ta" id="imgprompt" placeholder="Masalan: Hayron bo‘lgan yigit pul uyumiga qarab turibdi, qizil fon, yirik plan"></textarea>
         <div class="lbl">Rasm hajmi</div>
         <div class="row" id="rt">
           <button class="chip on" onclick="ratio(this,'16:9')">YouTube 16:9</button>
@@ -411,6 +412,8 @@ h2{font-family:var(--h);font-size:14px;margin:26px 4px 14px}
           <button class="chip" onclick="ratio(this,'3:4')">3:4</button>
         </div>
         <div class="pvw" id="pv" style="aspect-ratio:16/9">Natija shu yerda chiqadi</div>
+        <div class="lbl" id="pen" style="margin-top:10px;word-break:break-word"></div>
+        <div class="lbl" id="imginfo" style="margin-top:14px"></div>
         <button class="btn" onclick="gen()">Rasm yaratish</button>
       </div>
     </section>
@@ -459,8 +462,8 @@ const $=id=>document.getElementById(id);
 var MODEL=(function(){try{return localStorage.getItem('aimodel')||'plus'}catch(e){return 'plus'}})(),MODELS_UI=[{id:'plus',name:'YouTube AI Plus',icon:'⚡',limit:0,left:null},{id:'pro',name:'YouTube AI Pro',icon:'💎',limit:0,left:null,soon:true}],LASTBY='';
 function drawer(o){$('dr').classList.toggle('on',o)}
 const MQ={home:['UlugbekPardayev YOUTUBE AI Chat bot','a'],img:[null],chat:[null],course:['Ulugʻbek Pardayev Kurslari','a c'],chan:[null],video:[null],anl:[null],wallet:[null],phone:[null]};
-function go(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));$(p).classList.add('on');drawer(false);
-  if(p==='chat'&&!$('msgs').children.length)GREET=add('b',greetText());
+function go(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));$(p).classList.add('on');drawer(false);if(p==='img')loadImgInfo();
+  if(p==='chat'&&!HLOADED)setTimeout(loadHistory,0);
   mq(MQ[p][0],MQ[p][1]);if(p==='course')countUp();if(p==='chan'||p==='video')loadChannels();if(p==='chat')loadModels();if(p==='wallet'||p==='phone'||p==='home')loadWallet();if(p==='phone')loadNums()}
 function add(t,x,img){const d=document.createElement('div');d.className='m '+t;if(img){const i=document.createElement('img');i.src=img;i.className='pic';d.appendChild(i)}const sp=document.createElement('span');sp.textContent=x;d.appendChild(sp);$('msgs').appendChild(d);$('msgs').scrollTop=1e9;return sp}
 const HD={'Content-Type':'application/json'};
@@ -473,8 +476,11 @@ function rmImg(){IMG=null;$('att').innerHTML=''}
 function send(){const v=$('q1').value.trim();if(!v&&!IMG)return;const im=IMG;$('q1').value='';rmImg();ask(v,im)}
 let RT='16:9';
 function ratio(b,r){document.querySelectorAll('#rt .chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');RT=r;const p=$('pv'),q=r.split(':').map(Number);p.style.aspectRatio=q[0]+'/'+q[1];p.style.width=q[0]<q[1]?'56%':'100%'}
-async function gen(){const p=$('pm').value.trim(),v=$('pv');if(!p){v.textContent='Avval prompt yozing';return}v.textContent='Yaratilmoqda...';
-  try{const r=await fetch('/api/image',{method:'POST',headers:HD,body:JSON.stringify({prompt:p,ratio:RT})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'xato');v.innerHTML='<img src="'+d.image+'" style="width:100%;height:100%;object-fit:cover">'}
+let GB=0;async function gen(){if(GB)return;GB=1;try{await gen0()}finally{GB=0}}
+function showImgInfo(d){const e=$('imginfo');if(!e||!d||d.free_left===undefined)return;const n=x=>Number(x||0).toLocaleString('ru-RU');e.textContent=d.free_left>0?('🎁 Bepul rasm: '+d.free_left+'/'+d.free_total+'  ·  keyin har biri '+n(d.price)+' so‘m'):('💰 Har bir rasm: '+n(d.price)+' so‘m  ·  Balans: '+n(d.balance)+' so‘m  ·  Bepul: 0/'+d.free_total)}
+async function loadImgInfo(){try{const r=await fetch('/api/imginfo?t='+Date.now(),{headers:HD});if(r.ok)showImgInfo(await r.json())}catch(e){}}
+async function gen0(){const p=$('imgprompt').value.trim(),v=$('pv');if(!p){v.textContent='Avval prompt yozing';return}$('pen').textContent='';v.textContent='Yaratilmoqda... (10-30 soniya)';
+  try{const r=await fetch('/api/image',{method:'POST',headers:HD,body:JSON.stringify({prompt:p,ratio:RT})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('Server javobi: '+r.status+' (Termux oynasiga qarang)'));v.innerHTML='<img src="'+d.image+'" style="width:100%;height:100%;object-fit:cover">';$('pen').textContent=d.prompt_en?('🔤 Prompt: '+d.prompt_en):'';showImgInfo(d);try{loadWallet()}catch(_){}}
   catch(e){v.textContent=(e&&e.message&&e.message!=='Failed to fetch')?'⚠️ '+e.message.slice(0,240):'Server bilan aloqa yo‘q.'}}
 let RAF;
 function mq(txt,cls){const b=$('mqb'),el=$('m1');cancelAnimationFrame(RAF);if(!txt){b.style.display='none';return}b.className='mq '+cls;b.style.display='';
@@ -512,7 +518,10 @@ async function sendRcp(){clearInterval(T);const p=planOf(CURID);$('sbm').textCon
 
 const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TGW=window.Telegram&&Telegram.WebApp,INIT=(TGW&&TGW.initData)||'';HD['X-Init']=INIT;
-try{if(TGW){TGW.ready();TGW.expand();TGW.setHeaderColor('#050405');TGW.setBackgroundColor('#050405')}}catch(e){}
+try{if(TGW){TGW.ready();TGW.expand();TGW.setHeaderColor('#050405');TGW.setBackgroundColor('#050405');try{TGW.disableVerticalSwipes&&TGW.disableVerticalSwipes()}catch(e){}try{if(TGW.isVersionAtLeast&&TGW.isVersionAtLeast('8.0')&&TGW.requestFullscreen&&!TGW.isFullscreen)TGW.requestFullscreen()}catch(e){}}}catch(e){}
+function fsSync(){try{$('app').classList.toggle('fs',!!(TGW&&TGW.isFullscreen))}catch(e){}}
+try{if(TGW&&TGW.onEvent){TGW.onEvent('fullscreenChanged',fsSync);TGW.onEvent('fullscreenFailed',fsSync)}}catch(e){}
+setTimeout(fsSync,300);
 const P0=new URLSearchParams(location.search).get('p');if(P0&&MQ[P0])go(P0);
 let HIST=[],HOLDER='',INFO={hup:'',pro:'',vip:''},UID='';
 try{UID=localStorage.uid||(localStorage.uid=Math.random().toString(36).slice(2)+Date.now().toString(36))}catch(e){UID=Math.random().toString(36).slice(2)}
@@ -529,7 +538,9 @@ function paintCard(){const wc=$('wcard');if(wc)wc.innerHTML=esc(CARD)+(HOLDER?'<
 paintCard();
 function countUp(){}
 
-async function forget(){try{await fetch('/api/forget',{method:'POST',headers:HD,body:JSON.stringify({uid:UID})})}catch(e){}HIST=[];$('msgs').innerHTML='';drawer(false);go('chat')}
+var HLOADED=false;
+async function loadHistory(){if(HLOADED)return;HLOADED=true;try{const r=await fetch('/api/history?uid='+encodeURIComponent(UID)+'&t='+Date.now(),{headers:HD});const j=r.ok?await r.json():{items:[]};const it=j.items||[];if(it.length){it.forEach(x=>{add('u',x.q);add('b',x.a);HIST.push({role:'user',content:x.q},{role:'assistant',content:x.a})});return}}catch(e){}GREET=add('b',greetText())}
+async function forget(){try{await fetch('/api/forget',{method:'POST',headers:HD,body:JSON.stringify({uid:UID})})}catch(e){}HIST=[];$('msgs').innerHTML='';HLOADED=false;drawer(false);go('chat')}
 
 let CHANNELS=[],VIDEOS=[];
 function goBack(){String(CURID).startsWith('ch')?openChannel(+String(CURID).slice(2)):openPlan(CURID)}
@@ -550,7 +561,7 @@ function curModel(){return MODELS_UI.find(m=>m.id===MODEL)||MODELS_UI[0]||{id:'p
 function greetText(){return 'Assalomu alaykum 👋 Men '+curModel().name+'. Savolingizni yozing.'}
 function subm(m){return m.soon?'Tez orada':(m.limit?('kuniga '+m.limit+' ta · '+m.left+' qoldi'):'cheklovsiz')}
 function renderModels(){const q=$('q1');if(q)q.placeholder=curModel().icon+' '+curModel().name+' ga savol yozing...';renderPlus();aq()}
-function renderPlus(){const e=$('pm');if(!e)return;e.innerHTML='<button class="pi" onclick="closePlus();$(\'fi\').click()"><i>🖼️</i><span><b>Galereyadan rasm</b><small>Rasm yuborish</small></span></button>'+MODELS_UI.map(m=>'<button class="pi'+(m.id===MODEL?' on':'')+(m.soon?' soon':'')+'" onclick="pickModel(\''+m.id+'\')"><i>'+esc(m.icon)+'</i><span><b>'+esc(m.name)+'</b><small>'+esc(subm(m))+'</small></span><em>'+(m.id===MODEL?'✓':'')+'</em></button>').join('')+'<button class="pi" onclick="closePlus();go(\'anl\')"><i>📊</i><span><b>Kanalni tahlil qildirish</b><small>YouTube AI Plus bilan</small></span></button>'}
+function renderPlus(){const e=$('pm');if(!e)return;e.innerHTML='<button class="pi" onclick="closePlus();$(\'fi\').click()"><i>🖼️</i><span><b>Galereyadan rasm</b><small>Rasm yuborish</small></span></button>'+MODELS_UI.map(m=>'<button class="pi'+(m.id===MODEL?' on':'')+(m.soon?' soon':'')+'" onclick="pickModel(\''+m.id+'\')"><i>'+esc(m.icon)+'</i><span><b>'+esc(m.name)+'</b><small>'+esc(subm(m))+'</small></span><em>'+(m.id===MODEL?'✓':'')+'</em></button>').join('')}
 function aq(){const p=MODELS_UI.find(m=>m.id==='plus');if(p&&$('aqt'))$('aqt').textContent=subm(p)}
 function togglePlus(ev){if(ev)ev.stopPropagation();PMOPEN=!PMOPEN;$('pm').style.display=PMOPEN?'flex':'none'}
 function closePlus(){PMOPEN=false;const e=$('pm');if(e)e.style.display='none'}
